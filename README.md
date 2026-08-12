@@ -1,62 +1,96 @@
 # NexusBack
 
-Backend principal de **A.T.A.T. ERP**, construido con Django y Django REST
-Framework. Este repositorio contiene la base técnica para un monolito modular
-orientado a dominios; las funcionalidades del ERP se incorporarán por módulos
-en cambios independientes.
+Backend principal de **A.T.A.T. ERP**, desarrollado con Django y Django REST Framework.
+
+El proyecto utiliza una arquitectura de monolito modular orientada a dominios.
 
 ## Stack
 
-- Python 3.11+
-- Django
-- Django REST Framework
+* Python 3.11+
+* Django
+* Django REST Framework
+* Docker
 
-## Requisitos
+## Configuración
 
-- Python 3.11 o superior
-- `pip`
+Copie `.env.example` como `.env` y defina una clave local para:
 
-## Preparación local
+```env
+DJANGO_SECRET_KEY=your-local-secret-key
+```
 
-1. Cree y active un entorno virtual:
+El archivo `.env` contiene la configuración local y no se versiona.
 
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   ```
+## Desarrollo con Docker
 
-2. Instale las dependencias:
+### Primer arranque
 
-   ```powershell
-   python -m pip install -r requirements.txt
-   ```
+```bash
+docker compose up --build
+```
 
-3. Copie `.env.example` como `.env` y reemplace `DJANGO_SECRET_KEY` por una
-   clave local segura. El archivo `.env` no se versiona.
+### Arranques posteriores
 
-4. Aplique las migraciones incluidas por Django (admin, autenticación y
-   sesiones):
+```bash
+docker compose up
+```
 
-   ```powershell
-   python manage.py migrate
-   ```
+Para ejecutarlo en segundo plano:
 
-5. Ejecute las verificaciones y el servidor:
+```bash
+docker compose up -d
+```
 
-   ```powershell
-   python manage.py check
-   python manage.py runserver
-   ```
+Para detenerlo:
 
-El health check técnico está disponible en `GET /api/v1/health/`.
+```bash
+docker compose down
+```
+
+Para consultar los logs:
+
+```bash
+docker compose logs -f nexusback
+```
+
+Para verificar la configuración de Django:
+
+```bash
+docker compose exec nexusback python manage.py check
+```
+
+El backend queda disponible en:
+
+```text
+http://localhost:8000
+```
+
+Health check:
+
+```text
+GET http://localhost:8000/api/v1/health/
+```
+
+Los cambios realizados en el código se reflejan automáticamente mediante el autoreload de Django. Solo es necesario reconstruir la imagen cuando cambien las dependencias o el `Dockerfile`.
+
+## Desarrollo sin Docker
+
+Como alternativa, puede ejecutarse localmente con Python 3.11 o superior.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python manage.py check
+python manage.py runserver
+```
 
 ## Estructura
 
 ```text
-config/  Configuración global y puntos de entrada de Django.
-apps/    Contenedor de futuros dominios funcionales.
+config/  Configuración global de Django.
+apps/    Dominios funcionales del sistema.
 docs/    Documentación del proyecto.
 ```
 
-La arquitectura y sus reglas de evolución están documentadas en
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Las decisiones y reglas de arquitectura se encuentran en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
