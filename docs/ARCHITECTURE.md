@@ -3,8 +3,9 @@
 ## 1. Objetivo
 
 NexusBack es el backend principal de A.T.A.T. ERP. Esta base inicial contiene
-únicamente la configuración técnica necesaria para desarrollar el ERP de forma
-incremental; no contiene dominios, modelos ni funcionalidades de negocio.
+la configuración técnica necesaria para desarrollar el ERP de forma
+incremental y el dominio base `users`; no contiene funcionalidades de negocio
+del ERP ni integración de autenticación.
 
 ## 2. Tipo de arquitectura
 
@@ -22,7 +23,7 @@ capas abstractas sin una necesidad concreta.
 ```text
 NexusBack/
 ├── config/     # Configuración global, entradas ASGI/WSGI y rutas agregadoras
-├── apps/       # Contenedor de los dominios funcionales futuros
+├── apps/       # Contenedor de los dominios funcionales
 ├── docs/       # Documentación técnica y arquitectónica
 ├── manage.py
 ├── requirements.txt
@@ -38,7 +39,11 @@ trabajen sobre el repositorio.
 ## 4. Dominios
 
 Cada funcionalidad importante será una Django App dentro de `apps/<domain>/`.
-No hay dominios creados en esta base; en particular, no existe una app `users`.
+El primer dominio creado es `apps/users/`, que contiene el perfil funcional del
+usuario del ERP y sus migraciones. La autenticación será responsabilidad de
+Supabase Auth: NexusBack no almacenará ni gestionará contraseñas, sesiones ni
+tokens de usuarios. Aún no expone API ni incorpora roles empresariales; las
+empresas y sus membresías/roles pertenecen a dominios futuros.
 
 Una app crecerá según sus responsabilidades reales. Cuando lo necesite, podrá
 incluir `migrations/`, `models/`, `services/`, `selectors/`, `api/`, `urls.py`,
@@ -66,14 +71,19 @@ ViewSets, cuando el tamaño del módulo justifique esa separación.
 
 ## 6. Flujo general
 
-Una operación puede seguir este flujo:
+Una operación protegida seguirá este flujo:
 
 ```text
-HTTP → View / ViewSet → Serializer → Service o Selector (cuando corresponda) → Model → DB
+Request → Authentication → User profile → Permissions → View / ViewSet → Serializer → Model → DB
 ```
 
-No toda operación debe atravesar todas las capas. Los CRUD simples pueden usar
-las herramientas nativas de Django REST Framework; Services y Selectors se
+La autenticación futura validará el JWT de Supabase antes de acceder al perfil
+funcional de `users`; los permisos decidirán la autorización antes de la View.
+Las respuestas públicas de autenticación y autorización no expondrán detalles
+internos. Los casos internos se documentan incrementalmente en
+`docs/ERROR_CODES.md` y podrán registrarse con `logging` estándar. No toda
+operación debe atravesar todas las capas. Los CRUD simples pueden usar las
+herramientas nativas de Django REST Framework; Services y Selectors se
 introducen cuando separan una responsabilidad real.
 
 ## 7. Código compartido
@@ -96,12 +106,13 @@ acuerdo con el caso concreto. Las excepciones relevantes se documentarán.
 
 ## 9. API REST
 
-La API se versiona bajo el prefijo `/api/v1/`. `config/urls.py` es el agregador
-global; cada dominio registrará y mantendrá sus propias rutas. Para CRUDs
-convencionales se podrán usar ViewSets y routers de DRF. Para operaciones
-especiales se podrán usar APIViews o rutas explícitas.
+La API se organiza bajo el prefijo `/api/<domain>/`, por ejemplo
+`/api/users/` o `/api/companies/`. `config/urls.py` es el agregador global;
+cada dominio registrará y mantendrá sus propias rutas. Para CRUDs convencionales
+se podrán usar ViewSets y routers de DRF. Para operaciones especiales se podrán
+usar APIViews o rutas explícitas.
 
-El único endpoint actual es `GET /api/v1/health/`: un health check técnico que
+El único endpoint actual es `GET /api/health/`: un health check técnico que
 no representa una funcionalidad del ERP ni consulta la base de datos.
 
 ## 10. Base de datos y migraciones
@@ -110,11 +121,12 @@ El acceso a datos se realizará mediante Django ORM. Cada dominio será dueño d
 sus migraciones y las mantendrá versionadas junto a su app; no habrá una carpeta
 global de migraciones del ERP.
 
-PostgreSQL será la base de datos definitiva y posteriormente podrá alojarse en
-Supabase. La configuración ya admite los valores `POSTGRES_*` por variables de
-entorno. Hasta que se configure PostgreSQL se usa SQLite sólo para la
-verificación local mínima. No se integra Supabase ni se almacenan credenciales
-en el repositorio.
+PostgreSQL será la base de datos definitiva y podrá alojarse en Supabase, cuya
+infraestructura de Auth será la autoridad de autenticación. La configuración ya
+admite los valores `POSTGRES_*` por variables de entorno. Hasta que se
+configure PostgreSQL se usa SQLite sólo para la verificación local mínima. La
+integración con Supabase Auth no se implementa todavía y no se almacenan
+credenciales en el repositorio.
 
 ## 11. Principios de evolución
 

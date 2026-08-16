@@ -8,5 +8,5 @@ from config.health import HealthCheckView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/v1/health/", HealthCheckView.as_view(), name="health-check"),
+    path("api/health/", HealthCheckView.as_view(), name="health-check"),
 ]
