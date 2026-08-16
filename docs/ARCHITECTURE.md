@@ -4,8 +4,8 @@
 
 NexusBack es el backend principal de A.T.A.T. ERP. Esta base inicial contiene
 la configuración técnica necesaria para desarrollar el ERP de forma
-incremental y el dominio base `users`; no contiene funcionalidades de negocio
-del ERP ni integración de autenticación.
+incremental y el dominio funcional base `users`; no contiene integración de
+autenticación.
 
 ## 2. Tipo de arquitectura
 
@@ -39,11 +39,16 @@ trabajen sobre el repositorio.
 ## 4. Dominios
 
 Cada funcionalidad importante será una Django App dentro de `apps/<domain>/`.
-El primer dominio creado es `apps/users/`, que contiene el perfil funcional del
-usuario del ERP y sus migraciones. La autenticación será responsabilidad de
-Supabase Auth: NexusBack no almacenará ni gestionará contraseñas, sesiones ni
-tokens de usuarios. Aún no expone API ni incorpora roles empresariales; las
-empresas y sus membresías/roles pertenecen a dominios futuros.
+El primer dominio creado es `apps/users/`, que representa el perfil funcional
+del usuario dentro del ERP. Supabase Auth es la autoridad de identidad y
+autenticación: gestiona email, contraseña, recuperación de contraseña, sesiones
+y futuros proveedores sociales. NexusBack no almacena contraseñas y
+posteriormente validará los JWT emitidos por Supabase.
+
+`users.User` comparte el UUID de la identidad de Supabase y contiene sólo datos
+funcionales, como estado y administración global. Otros dominios podrán
+relacionarse posteriormente con este perfil, por ejemplo mediante una futura
+`CompanyMembership`, sin incorporar empresas ni roles empresariales a `users`.
 
 Una app crecerá según sus responsabilidades reales. Cuando lo necesite, podrá
 incluir `migrations/`, `models/`, `services/`, `selectors/`, `api/`, `urls.py`,
@@ -107,7 +112,7 @@ acuerdo con el caso concreto. Las excepciones relevantes se documentarán.
 ## 9. API REST
 
 La API se organiza bajo el prefijo `/api/<domain>/`, por ejemplo
-`/api/users/` o `/api/companies/`. `config/urls.py` es el agregador global;
+`/api/companies/`. `config/urls.py` es el agregador global;
 cada dominio registrará y mantendrá sus propias rutas. Para CRUDs convencionales
 se podrán usar ViewSets y routers de DRF. Para operaciones especiales se podrán
 usar APIViews o rutas explícitas.
@@ -121,12 +126,12 @@ El acceso a datos se realizará mediante Django ORM. Cada dominio será dueño d
 sus migraciones y las mantendrá versionadas junto a su app; no habrá una carpeta
 global de migraciones del ERP.
 
-PostgreSQL será la base de datos definitiva y podrá alojarse en Supabase, cuya
-infraestructura de Auth será la autoridad de autenticación. La configuración ya
-admite los valores `POSTGRES_*` por variables de entorno. Hasta que se
-configure PostgreSQL se usa SQLite sólo para la verificación local mínima. La
-integración con Supabase Auth no se implementa todavía y no se almacenan
-credenciales en el repositorio.
+PostgreSQL alojado en Supabase es la única base de datos soportada por
+NexusBack; sus parámetros de conexión se suministran mediante variables de
+entorno y su ausencia detiene el arranque explícitamente. Django y cada dominio
+mantienen la responsabilidad de sus migraciones. La infraestructura de
+Supabase Auth será la autoridad de autenticación, pero su integración no se
+implementa todavía y no se almacenan credenciales en el repositorio.
 
 ## 11. Principios de evolución
 

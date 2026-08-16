@@ -14,7 +14,7 @@ en cambios independientes.
 ## Requisitos
 
 - Python 3.11 o superior
-- `pip`
+- `pip` o Docker Compose
 
 ## Preparación local
 
@@ -31,11 +31,12 @@ en cambios independientes.
    python -m pip install -r requirements.txt
    ```
 
-3. Copie `.env.example` como `.env` y reemplace `DJANGO_SECRET_KEY` por una
-   clave local segura. El archivo `.env` no se versiona.
+3. Copie `.env.example` como `.env`, reemplace `DJANGO_SECRET_KEY` por una
+   clave local segura y configure todas las variables de PostgreSQL. El archivo
+   `.env` no se versiona; NexusBack no admite SQLite como fallback.
 
-4. Aplique las migraciones incluidas por Django (admin, autenticación y
-   sesiones):
+4. Cuando la conexión PostgreSQL esté validada, aplique las migraciones de los
+   dominios del ERP:
 
    ```powershell
    python manage.py migrate
@@ -48,7 +49,20 @@ en cambios independientes.
    python manage.py runserver
    ```
 
-El health check técnico está disponible en `GET /api/v1/health/`.
+Para desarrollo con Docker, configure `.env` y ejecute:
+
+```powershell
+docker compose up --build
+```
+
+Para logs o verificaciones dentro del contenedor, el servicio es `nexusback`:
+
+```powershell
+docker compose logs -f nexusback
+docker compose exec nexusback python manage.py check
+```
+
+El health check técnico está disponible en `GET /api/health/`.
 
 ## Estructura
 
