@@ -108,17 +108,34 @@ POST   /api/users/login/
 GET    /api/users/<uuid>/
 PUT    /api/users/<uuid>/
 PATCH  /api/users/<uuid>/
+POST   /api/users/<uuid>/system-admin/
+POST   /api/users/<uuid>/activate/
+POST   /api/users/<uuid>/deactivate/
 ```
 
 `DELETE` no está implementado actualmente.
 
 La creación directa de perfiles mediante `POST /api/users/` no está disponible:
-todo usuario nuevo debe pasar por `POST /api/users/register/`. El email es una
-copia operativa de solo lectura en el CRUD normal; un futuro cambio de email
-deberá actualizar primero Supabase Auth y luego `public.users`.
+todo usuario nuevo debe pasar por `POST /api/users/register/`. En el CRUD
+normal, `id`, `email`, `is_active` e `is_system_admin` son de solo lectura. Un
+futuro cambio de email deberá actualizar primero Supabase Auth y luego
+`public.users`.
 
 La búsqueda consulta únicamente `public.users` por nombre, apellido o email,
 sin distinguir mayúsculas y minúsculas.
+
+## Operaciones administrativas
+
+Estas rutas requieren un Bearer válido cuyo perfil local tenga
+`is_system_admin = True`:
+
+- `POST /api/users/<uuid>/system-admin/` recibe
+  `{"is_system_admin": true|false}` y cambia ese privilegio en otro usuario.
+- `POST /api/users/<uuid>/activate/` activa el perfil local objetivo.
+- `POST /api/users/<uuid>/deactivate/` desactiva el perfil local objetivo.
+
+Un administrador no puede desactivarse ni quitarse su propio privilegio. Estas
+operaciones no eliminan perfiles locales ni usuarios de Supabase Auth.
 
 ## Errores
 
@@ -126,17 +143,26 @@ Los códigos aplicables al módulo incluyen `NEX-USR-003` para datos inválidos,
 `NEX-USR-004` para un usuario inexistente, `NEX-USR-005` para una cuenta no
 creada por Supabase Auth, `NEX-USR-006` para un perfil local no creado,
 `NEX-USR-007` para rate limit, `NEX-USR-008` para credenciales inválidas y
-`NEX-USR-009` para un fallo de login. La fuente de verdad del catálogo es
-[docs/ERROR_CODES.md](../ERROR_CODES.md).
+`NEX-USR-009` para un fallo de login. `NEX-USR-010` representa un Bearer
+ausente, mal formado o inválido, `NEX-USR-011` una falta de permisos y
+`NEX-USR-012` un fallo interno al validar el perfil local autenticado. La fuente
+de verdad del catálogo es [docs/ERROR_CODES.md](../ERROR_CODES.md).
 
 ## Estado de autenticación
 
-- El CRUD básico de `users` está implementado.
+- `POST /api/users/register/` y `POST /api/users/login/` son públicos.
+- Los demás endpoints de `users` requieren `Authorization: Bearer <access_token>`.
+- NexusBack valida el Bearer ante Supabase Auth, busca el UUID en `public.users`
+  y rechaza perfiles inexistentes o inactivos.
+- Un usuario normal sólo puede consultar y editar su propio perfil.
+- Un administrador global puede listar, buscar, consultar y editar cualquier
+  perfil. También puede activar, desactivar y cambiar `is_system_admin` de otros
+  usuarios mediante las acciones administrativas explícitas.
+- Un administrador no puede desactivarse ni quitarse su propio privilegio.
 - Supabase PostgreSQL está conectado y la migración inicial está aplicada.
 - El registro email/password mediante Supabase Auth está implementado.
 - El login email/password mediante Supabase Auth está implementado.
 - La confirmación de email está desactivada en la configuración actual del proyecto.
-- Los JWT todavía no se validan en los endpoints de NexusBack.
 - Refresh todavía no está implementado.
 - Logout todavía no está implementado.
 - Google Auth todavía no está implementado.

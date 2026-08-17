@@ -4,15 +4,17 @@ from django.db.models import Q
 from django.http import Http404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from supabase_auth.errors import AuthApiError
 
 from apps.users import authentication
+from apps.users.authentication import SupabaseBearerAuthentication
 from apps.users.api.serializers import (
     LoginSerializer,
     RegisterSerializer,
+    SystemAdminSerializer,
     UserSerializer,
 )
 from apps.users.models import User
@@ -52,6 +54,19 @@ class UserViewSet(
 ):
     queryset = User.objects.all()
     serializer_class = UserSerializer
+    authentication_classes = (SupabaseBearerAuthentication,)
+
+    def initial(self, request, *args, **kwargs):
+        """
+        Restringe el listado y la búsqueda a administradores del sistema.
+
+        @version 1.0
+        @param request: Solicitud HTTP dirigida al ViewSet.
+        @author Agustin
+        """
+        super().initial(request, *args, **kwargs)
+        if self.action in {"list", "search"}:
+            self._require_system_admin()
 
     def get_object(self):
         """
@@ -61,11 +76,13 @@ class UserViewSet(
         @author Agustin
         """
         try:
-            return super().get_object()
+            user = super().get_object()
         except Http404 as error:
             raise NotFound(
                 {"code": "NEX-USR-004", "message": "Usuario no encontrado."}
             ) from error
+        self._require_user_access(user)
+        return user
 
     def handle_exception(self, error):
         """
@@ -105,6 +122,102 @@ class UserViewSet(
             | Q(email__icontains=query)
         )
         return Response(self.get_serializer(users, many=True).data)
+
+    @action(detail=True, methods=["post"], url_path="system-admin")
+    def system_admin(self, request, pk=None):
+        """
+        Actualiza el privilegio global de otro usuario.
+
+        @version 1.0
+        @param request: Solicitud con el nuevo valor de is_system_admin.
+        @param pk: UUID del usuario objetivo.
+        @author Agustin
+        """
+        self._require_system_admin()
+        user = self.get_object()
+        serializer = SystemAdminSerializer(data=request.data)
+        if not serializer.is_valid():
+            raise ValidationError(serializer.errors)
+
+        is_system_admin = serializer.validated_data["is_system_admin"]
+        if user.id == request.user.id and not is_system_admin:
+            self._deny_permission()
+
+        user.is_system_admin = is_system_admin
+        user.save(update_fields=["is_system_admin"])
+        return Response(self.get_serializer(user).data)
+
+    @action(detail=True, methods=["post"])
+    def activate(self, request, pk=None):
+        """
+        Activa el perfil local de un usuario.
+
+        @version 1.0
+        @param request: Solicitud administrativa autenticada.
+        @param pk: UUID del usuario objetivo.
+        @author Agustin
+        """
+        self._require_system_admin()
+        user = self.get_object()
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+        return Response(self.get_serializer(user).data)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """
+        Desactiva el perfil local de un usuario sin eliminarlo.
+
+        @version 1.0
+        @param request: Solicitud administrativa autenticada.
+        @param pk: UUID del usuario objetivo.
+        @author Agustin
+        """
+        self._require_system_admin()
+        user = self.get_object()
+        if user.id == request.user.id:
+            self._deny_permission()
+
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        return Response(self.get_serializer(user).data)
+
+    def _require_user_access(self, user):
+        """
+        Permite acceder al perfil propio o a cualquier perfil siendo administrador.
+
+        @version 1.0
+        @param user: Perfil local objetivo de la operación.
+        @author Agustin
+        """
+        if self.request.user.is_system_admin or user.id == self.request.user.id:
+            return
+        self._deny_permission()
+
+    def _require_system_admin(self):
+        """
+        Exige que el usuario autenticado sea administrador global.
+
+        @version 1.0
+        @author Agustin
+        """
+        if not self.request.user.is_system_admin:
+            self._deny_permission()
+
+    @staticmethod
+    def _deny_permission():
+        """
+        Detiene la operación por falta de permisos suficientes.
+
+        @version 1.0
+        @author Agustin
+        """
+        raise PermissionDenied(
+            {
+                "code": "NEX-USR-011",
+                "message": "No fue posible autorizar la operación.",
+            }
+        )
 
 
 class RegisterView(APIView):

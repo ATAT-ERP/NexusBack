@@ -78,9 +78,9 @@ responsable de sus propias migraciones Django y las versiona junto con la app.
 
 Supabase Auth se utiliza para las operaciones de autenticación implementadas
 por los módulos que lo requieren, incluidos el registro y el inicio de sesión.
-La validación de JWT/Bearer para proteger endpoints todavía está pendiente;
-NexusBack no almacena contraseñas. Los detalles de `users` se documentan en
-`docs/modules/USERS.md`.
+El módulo `users` valida los JWT/Bearer emitidos por Supabase para sus endpoints
+protegidos; NexusBack no almacena contraseñas. Los detalles de `users` se
+documentan en `docs/modules/USERS.md`.
 
 ## Documentación por módulo
 
