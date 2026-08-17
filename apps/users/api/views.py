@@ -1,5 +1,7 @@
 import logging
 
+import httpx
+
 from django.db.models import Q
 from django.http import Http404
 from rest_framework import mixins, status, viewsets
@@ -12,6 +14,7 @@ from supabase_auth.errors import AuthApiError
 from apps.users import authentication
 from apps.users.authentication import SupabaseBearerAuthentication
 from apps.users.api.serializers import (
+    ChangePasswordSerializer,
     LoginSerializer,
     RegisterSerializer,
     SystemAdminSerializer,
@@ -44,6 +47,40 @@ def _auth_error(error, code, message, http_status, operation):
         getattr(error, "status", None),
     )
     return Response({"code": code, "message": message}, status=http_status)
+
+
+def _supabase_error_code(error):
+    """
+    Extrae el código estructurado devuelto por Supabase Auth.
+
+    @version 1.0
+    @param error Error HTTP originado por Supabase Auth.
+    @author Agustin
+    """
+    try:
+        data = error.response.json()
+    except ValueError:
+        return None
+    return data.get("code") if isinstance(data, dict) else None
+
+
+def _password_validation_error(field, message):
+    """
+    Construye un error de validación para el cambio de contraseña.
+
+    @version 1.0
+    @param field Campo del payload asociado al error.
+    @param message Mensaje público para el campo inválido.
+    @author Agustin
+    """
+    return Response(
+        {
+            "code": "NEX-USR-003",
+            "message": "Los datos enviados no son válidos.",
+            "errors": {field: [message]},
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 class UserViewSet(
@@ -307,6 +344,117 @@ class LogoutView(APIView):
             )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ChangePasswordView(APIView):
+    """
+    Permite al usuario autenticado cambiar su propia contraseña.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    authentication_classes = (SupabaseBearerAuthentication,)
+
+    def post(self, request):
+        """
+        Valida y actualiza la contraseña en Supabase Auth.
+
+        @version 1.0
+        @param request Solicitud autenticada con las contraseñas requeridas.
+        @author Agustin
+        """
+        serializer = ChangePasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "code": "NEX-USR-003",
+                    "message": "Los datos enviados no son válidos.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            authentication.change_password(
+                request.auth,
+                serializer.validated_data["current_password"],
+                serializer.validated_data["new_password"],
+            )
+        except httpx.HTTPStatusError as error:
+            return self._handle_supabase_error(error)
+        except httpx.RequestError as error:
+            return _auth_error(
+                error,
+                "NEX-USR-014",
+                "No se pudo actualizar la contraseña.",
+                status.HTTP_502_BAD_GATEWAY,
+                "password change",
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @staticmethod
+    def _handle_supabase_error(error):
+        """
+        Traduce los códigos estructurados de Supabase a respuestas públicas.
+
+        @version 1.0
+        @param error Error HTTP devuelto por Supabase Auth.
+        @author Agustin
+        """
+        if error.response.status_code >= 500:
+            return _auth_error(
+                error,
+                "NEX-USR-014",
+                "No se pudo actualizar la contraseña.",
+                status.HTTP_502_BAD_GATEWAY,
+                "password change",
+            )
+
+        error_code = _supabase_error_code(error)
+        if error_code == "current_password_invalid":
+            return _auth_error(
+                error,
+                "NEX-USR-008",
+                "Contraseña actual incorrecta.",
+                status.HTTP_401_UNAUTHORIZED,
+                "password change",
+            )
+        if error_code == "weak_password":
+            return _password_validation_error(
+                "new_password",
+                "La contraseña no cumple con los requisitos de seguridad.",
+            )
+        if error_code == "same_password":
+            return _password_validation_error(
+                "new_password",
+                "La contraseña nueva no puede coincidir con la actual.",
+            )
+        if error_code == "validation_failed":
+            return _password_validation_error(
+                "new_password", "La contraseña no es válida."
+            )
+        if error_code == "current_password_required":
+            return _password_validation_error(
+                "current_password", "Este campo es obligatorio."
+            )
+        if error_code == "over_request_rate_limit":
+            return _auth_error(
+                error,
+                "NEX-USR-007",
+                "Se alcanzó temporalmente el límite de solicitudes. "
+                "Intente nuevamente más tarde.",
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "password change",
+            )
+        return _auth_error(
+            error,
+            "NEX-USR-014",
+            "No se pudo actualizar la contraseña.",
+            status.HTTP_502_BAD_GATEWAY,
+            "password change",
+        )
 
 
 class LoginView(APIView):

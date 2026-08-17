@@ -105,6 +105,7 @@ GET    /api/users/search/?q=valor
 POST   /api/users/register/
 POST   /api/users/login/
 POST   /api/users/logout/
+POST   /api/users/password/change/
 
 GET    /api/users/<uuid>/
 PUT    /api/users/<uuid>/
@@ -147,7 +148,8 @@ creada por Supabase Auth, `NEX-USR-006` para un perfil local no creado,
 `NEX-USR-009` para un fallo de login. `NEX-USR-010` representa un Bearer
 ausente, mal formado o inválido, `NEX-USR-011` una falta de permisos y
 `NEX-USR-012` un fallo interno al validar el perfil local autenticado.
-`NEX-USR-013` representa un fallo de Supabase al cerrar una sesión. La fuente de
+`NEX-USR-013` representa un fallo de Supabase al cerrar una sesión y
+`NEX-USR-014` un fallo de Supabase al actualizar la contraseña. La fuente de
 verdad del catálogo es [docs/ERROR_CODES.md](../ERROR_CODES.md).
 
 ## Estado de autenticación
@@ -155,6 +157,10 @@ verdad del catálogo es [docs/ERROR_CODES.md](../ERROR_CODES.md).
 - `POST /api/users/register/` y `POST /api/users/login/` son públicos.
 - `POST /api/users/logout/` requiere Bearer y cierra con scope local la sesión
   de Supabase representada por ese token; responde `204 No Content`.
+- `POST /api/users/password/change/` requiere Bearer y recibe
+  `current_password`, `new_password` y `confirm_password`. Sólo actualiza la
+  contraseña de la identidad autenticada en Supabase Auth; no modifica
+  `public.users` y responde `204 No Content`.
 - El access JWT emitido puede seguir siendo válido hasta su expiración después
   del logout. El cliente debe descartar sus access y refresh tokens tras el 204.
 - Los demás endpoints de `users` requieren `Authorization: Bearer <access_token>`.
@@ -168,9 +174,9 @@ verdad del catálogo es [docs/ERROR_CODES.md](../ERROR_CODES.md).
 - Supabase PostgreSQL está conectado y la migración inicial está aplicada.
 - El registro email/password mediante Supabase Auth está implementado.
 - El login email/password mediante Supabase Auth está implementado.
+- El cambio autogestionado de contraseña mediante Supabase Auth está implementado.
 - La confirmación de email está desactivada en la configuración actual del proyecto.
 - Refresh todavía no está implementado.
-- Logout todavía no está implementado.
 - Google Auth todavía no está implementado.
 
 Si Supabase Auth crea la cuenta pero falla la creación de `public.users`, el

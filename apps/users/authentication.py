@@ -149,3 +149,27 @@ def logout(access_token):
         },
     )
     response.raise_for_status()
+
+
+def change_password(access_token, current_password, new_password):
+    """
+    Actualiza la contraseña del usuario representado por un Bearer vigente.
+
+    @version 1.0
+    @param access_token JWT Bearer de la sesión autenticada.
+    @param current_password Contraseña actual proporcionada por el usuario.
+    @param new_password Nueva contraseña solicitada por el usuario.
+    @author Agustin
+    """
+    response = httpx.put(
+        f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/user",
+        headers={
+            "apikey": settings.SUPABASE_KEY,
+            "Authorization": f"Bearer {access_token}",
+        },
+        json={
+            "current_password": current_password,
+            "password": new_password,
+        },
+    )
+    response.raise_for_status()
