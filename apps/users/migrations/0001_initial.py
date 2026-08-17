@@ -15,8 +15,8 @@ class Migration(migrations.Migration):
             name='User',
             fields=[
                 ('id', models.UUIDField(primary_key=True, serialize=False)),
-                ('first_name', models.CharField(max_length=150)),
-                ('last_name', models.CharField(max_length=150)),
+                ('first_name', models.CharField(blank=True, default='', max_length=150)),
+                ('last_name', models.CharField(blank=True, default='', max_length=150)),
                 ('avatar_path', models.CharField(blank=True, max_length=500, null=True)),
                 ('is_active', models.BooleanField(default=True)),
                 ('is_system_admin', models.BooleanField(default=False)),
