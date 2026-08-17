@@ -1,0 +1,22 @@
+from django.db import models
+
+
+class User(models.Model):
+    id = models.UUIDField(primary_key=True)
+    email = models.EmailField(
+        unique=True,
+        null=True,
+        blank=True,
+    )
+    first_name = models.CharField(max_length=150, blank=True, default="")
+    last_name = models.CharField(max_length=150, blank=True, default="")
+    avatar_path = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+    )
+    is_active = models.BooleanField(default=True)
+    is_system_admin = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "users"

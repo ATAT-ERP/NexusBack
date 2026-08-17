@@ -1,133 +1,98 @@
 # Arquitectura de NexusBack
 
-## 1. Objetivo
+## Objetivo
 
-NexusBack es el backend principal de A.T.A.T. ERP. Esta base inicial contiene
-únicamente la configuración técnica necesaria para desarrollar el ERP de forma
-incremental; no contiene dominios, modelos ni funcionalidades de negocio.
+NexusBack es el backend de A.T.A.T. ERP. Está construido con Django y Django
+REST Framework (DRF) como un monolito modular orientado a dominios: una única
+aplicación desplegable organizada en módulos funcionales independientes.
 
-## 2. Tipo de arquitectura
-
-El proyecto es un **monolito modular orientado a dominios**. Se despliega como
-una única aplicación Django, mientras que cada capacidad importante del ERP se
-implementa como una Django App independiente.
-
-Esta decisión mantiene simple el despliegue y permite desarrollar por etapas,
-con responsabilidades claras y módulos desacoplados. Evita introducir de forma
-prematura la complejidad operativa de microservicios, arquitectura hexagonal o
-capas abstractas sin una necesidad concreta.
-
-## 3. Estructura general
+## Estructura general
 
 ```text
 NexusBack/
-├── config/     # Configuración global, entradas ASGI/WSGI y rutas agregadoras
-├── apps/       # Contenedor de los dominios funcionales futuros
-├── docs/       # Documentación técnica y arquitectónica
+├── config/     # Configuración global, ASGI/WSGI y rutas agregadoras
+├── apps/       # Módulos funcionales del backend
+├── docs/       # Documentación técnica, arquitectónica y por módulo
 ├── manage.py
-├── requirements.txt
-└── .env.example
+└── requirements.txt
 ```
 
-`config` no contiene lógica de negocio. `apps` agrupa el código por dominio.
-`shared` no existe todavía porque no hay código transversal real: se creará sólo
-cuando una implementación sea reutilizada por varios dominios. `docs` conserva
-las decisiones técnicas que deben conocer las personas y los agentes que
-trabajen sobre el repositorio.
+`config/` contiene configuración global y no lógica de negocio. `apps/`
+contiene los dominios funcionales existentes y los que se incorporen en el
+futuro. `shared/` sólo se creará para elementos realmente transversales y
+reutilizados por varios módulos; no es una capa creada por defecto.
 
-## 4. Dominios
+## Módulos y responsabilidades
 
-Cada funcionalidad importante será una Django App dentro de `apps/<domain>/`.
-No hay dominios creados en esta base; en particular, no existe una app `users`.
+Cada dominio se implementa como una Django App dentro de `apps/<domain>/`.
+Un módulo puede incorporar `models`, `migrations`, `api`, `services`,
+`selectors`, `permissions` o pruebas según una necesidad concreta. Ninguna de
+esas capas es obligatoria por convención.
 
-Una app crecerá según sus responsabilidades reales. Cuando lo necesite, podrá
-incluir `migrations/`, `models/`, `services/`, `selectors/`, `api/`, `urls.py`,
-`permissions.py` y `tests/`. No se crean carpetas, clases o archivos vacíos
-sólo para representar esta convención.
+- **Models y ORM:** representan y persisten datos mediante Django ORM.
+- **API:** agrupa serializers, views, viewsets y rutas HTTP del dominio.
+- **Services y selectors:** se crean sólo cuando una regla de negocio o una
+  consulta justifica separar esa responsabilidad.
 
-La capa `api/` agrupa las piezas HTTP del dominio, como serializers y Views o
-ViewSets, cuando el tamaño del módulo justifique esa separación.
+DRF y el ORM deben aprovecharse para operaciones estándar cuando ofrecen una
+solución clara. Por ejemplo, los mixins de DRF pueden resolver CRUDs
+convencionales sin duplicar acciones en un ViewSet. Los modelos sólo deben
+tener métodos propios cuando aporten comportamiento de dominio; no deben ser
+wrappers de llamadas simples como `User.objects.get(...)`,
+`User.objects.create(...)` o `User.objects.all()`.
 
-## 5. Responsabilidades
-
-- **models**: modelos ORM, relaciones y comportamiento propio de una entidad.
-- **migrations**: cambios de esquema del dominio propietario; se versionan junto
-  con su app.
-- **services**: operaciones y reglas de negocio que no deben quedar acopladas a
-  HTTP. No se crean para operaciones triviales.
-- **selectors**: consultas o lecturas de complejidad relevante.
-- **serializers**: serialización, deserialización y validación con DRF.
-- **views / ViewSets**: capa HTTP; deben ser pequeñas y delegar la lógica de
-  negocio cuando corresponda.
-- **urls**: rutas propias del dominio.
-- **permissions**: permisos específicos del dominio, sólo cuando sean
-  necesarios.
-- **tests**: pruebas del comportamiento del dominio, mantenidas con la app.
-
-## 6. Flujo general
-
-Una operación puede seguir este flujo:
+## Flujo general de una API
 
 ```text
-HTTP → View / ViewSet → Serializer → Service o Selector (cuando corresponda) → Model → DB
+HTTP
+  ↓
+URL / Router
+  ↓
+View / ViewSet
+  ↓
+Serializer
+  ↓
+Model / Django ORM
+  ↓
+PostgreSQL
 ```
 
-No toda operación debe atravesar todas las capas. Los CRUD simples pueden usar
-las herramientas nativas de Django REST Framework; Services y Selectors se
-introducen cuando separan una responsabilidad real.
+- **URL / Router:** expone los endpoints.
+- **View / ViewSet:** gestiona el flujo HTTP y construye las respuestas.
+- **Serializer:** transforma datos y aplica validación defensiva.
+- **Model / ORM:** representa y persiste los datos.
+- **Services / Selectors:** separan lógica o consultas sólo si su complejidad lo
+  requiere.
 
-## 7. Código compartido
+## API y rutas
 
-Una funcionalidad permanece en su dominio mientras sólo le pertenezca a él.
-`shared` se creará exclusivamente para código reutilizado por múltiples
-dominios: por ejemplo, excepciones, permisos, paginación, utilidades o
-contratos comunes. **shared no debe convertirse en un cajón de sastre.**
+La API se organiza bajo `/api/...`, sin versionado `/v1`. `config/urls.py`
+agrega las rutas globales y cada módulo mantiene sus propias rutas. Los routers
+de DRF son la opción preferida para recursos convencionales; las rutas
+explícitas se reservan para operaciones especiales.
 
-Cuando varios dominios necesiten contratos, tipos estructurales, `Protocol`,
-`dataclass` o `enum` comunes, podrán ubicarse en `shared/contracts/`. Los
-serializers de DRF no son contratos globales por defecto.
+## Datos, migraciones y autenticación
 
-## 8. Dependencias entre módulos
+PostgreSQL alojado en Supabase es la base de datos del proyecto. Cada módulo es
+responsable de sus propias migraciones Django y las versiona junto con la app.
 
-Se evitan dependencias circulares y el acceso indiscriminado a internals de
-otras apps. Las colaboraciones necesarias se expresarán mediante APIs internas
-claras, Services, Selectors, contratos compartidos o mecanismos de Django, de
-acuerdo con el caso concreto. Las excepciones relevantes se documentarán.
+Supabase Auth se utiliza para las operaciones de autenticación implementadas
+por los módulos que lo requieren, incluidos el registro y el inicio de sesión.
+El módulo `users` valida los JWT/Bearer emitidos por Supabase para sus endpoints
+protegidos; NexusBack no almacena contraseñas. Los detalles de `users` se
+documentan en `docs/modules/USERS.md`.
 
-## 9. API REST
+## Documentación por módulo
 
-La API se versiona bajo el prefijo `/api/v1/`. `config/urls.py` es el agregador
-global; cada dominio registrará y mantendrá sus propias rutas. Para CRUDs
-convencionales se podrán usar ViewSets y routers de DRF. Para operaciones
-especiales se podrán usar APIViews o rutas explícitas.
+Los detalles de implementación y estado de cada dominio se documentan en
+`docs/modules/`. La documentación actual del perfil local de usuarios está en
+[docs/modules/USERS.md](modules/USERS.md).
 
-El único endpoint actual es `GET /api/v1/health/`: un health check técnico que
-no representa una funcionalidad del ERP ni consulta la base de datos.
+## Principios de evolución
 
-## 10. Base de datos y migraciones
-
-El acceso a datos se realizará mediante Django ORM. Cada dominio será dueño de
-sus migraciones y las mantendrá versionadas junto a su app; no habrá una carpeta
-global de migraciones del ERP.
-
-PostgreSQL será la base de datos definitiva y posteriormente podrá alojarse en
-Supabase. La configuración ya admite los valores `POSTGRES_*` por variables de
-entorno. Hasta que se configure PostgreSQL se usa SQLite sólo para la
-verificación local mínima. No se integra Supabase ni se almacenan credenciales
-en el repositorio.
-
-## 11. Principios de evolución
-
-- No crear abstracciones ni dependencias sin una necesidad real.
-- No crear carpetas sólo para aparentar arquitectura.
-- Mantener la lógica de negocio fuera de las Views.
-- Mantener cada funcionalidad en su dominio.
-- Mover código a `shared` únicamente cuando sea realmente transversal.
-- Priorizar convenciones nativas de Django y Django REST Framework.
-- Mantener bajo acoplamiento entre módulos.
-
-## 12. Regla para futuros cambios
-
-**Si una decisión futura modifica la arquitectura general de NexusBack,
-`docs/ARCHITECTURE.md` debe actualizarse en el mismo cambio.** El código y la
-documentación arquitectónica no deben divergir.
+- Mantener la lógica dentro de su dominio propietario.
+- Evitar dependencias circulares y abstracciones prematuras.
+- Incorporar capas y código compartido sólo cuando aporten una responsabilidad
+  real y reutilizable.
+- Mantener la documentación arquitectónica alineada con los cambios generales
+  del backend.
