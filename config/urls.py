@@ -1,12 +1,11 @@
 """Global URL configuration and API route aggregator."""
 
-from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 
 from config.health import HealthCheckView
 
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("api/v1/health/", HealthCheckView.as_view(), name="health-check"),
+    path("api/health/", HealthCheckView.as_view(), name="health-check"),
+    path("api/", include("apps.users.api.urls")),
 ]
