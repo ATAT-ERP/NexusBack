@@ -104,6 +104,7 @@ GET    /api/users/
 GET    /api/users/search/?q=valor
 POST   /api/users/register/
 POST   /api/users/login/
+POST   /api/users/logout/
 
 GET    /api/users/<uuid>/
 PUT    /api/users/<uuid>/
@@ -145,12 +146,17 @@ creada por Supabase Auth, `NEX-USR-006` para un perfil local no creado,
 `NEX-USR-007` para rate limit, `NEX-USR-008` para credenciales inválidas y
 `NEX-USR-009` para un fallo de login. `NEX-USR-010` representa un Bearer
 ausente, mal formado o inválido, `NEX-USR-011` una falta de permisos y
-`NEX-USR-012` un fallo interno al validar el perfil local autenticado. La fuente
-de verdad del catálogo es [docs/ERROR_CODES.md](../ERROR_CODES.md).
+`NEX-USR-012` un fallo interno al validar el perfil local autenticado.
+`NEX-USR-013` representa un fallo de Supabase al cerrar una sesión. La fuente de
+verdad del catálogo es [docs/ERROR_CODES.md](../ERROR_CODES.md).
 
 ## Estado de autenticación
 
 - `POST /api/users/register/` y `POST /api/users/login/` son públicos.
+- `POST /api/users/logout/` requiere Bearer y cierra con scope local la sesión
+  de Supabase representada por ese token; responde `204 No Content`.
+- El access JWT emitido puede seguir siendo válido hasta su expiración después
+  del logout. El cliente debe descartar sus access y refresh tokens tras el 204.
 - Los demás endpoints de `users` requieren `Authorization: Bearer <access_token>`.
 - NexusBack valida el Bearer ante Supabase Auth, busca el UUID en `public.users`
   y rechaza perfiles inexistentes o inactivos.

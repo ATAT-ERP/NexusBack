@@ -277,6 +277,38 @@ class RegisterView(APIView):
         return Response({"id": str(user.id)}, status=status.HTTP_201_CREATED)
 
 
+class LogoutView(APIView):
+    """
+    Cierra la sesión de Supabase asociada al Bearer autenticado.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    authentication_classes = (SupabaseBearerAuthentication,)
+
+    def post(self, request):
+        """
+        Revoca localmente la sesión que emitió el access token actual.
+
+        @version 1.0
+        @param request: Solicitud autenticada cuyo token se cerrará.
+        @author Agustin
+        """
+        try:
+            authentication.logout(request.auth)
+        except Exception as error:
+            return _auth_error(
+                error,
+                "NEX-USR-013",
+                "No fue posible cerrar la sesión.",
+                status.HTTP_502_BAD_GATEWAY,
+                "logout",
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class LoginView(APIView):
     def post(self, request):
         """

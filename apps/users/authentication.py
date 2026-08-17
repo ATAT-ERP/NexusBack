@@ -1,3 +1,5 @@
+import httpx
+
 from django.conf import settings
 from django.db import DatabaseError
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
@@ -128,3 +130,22 @@ def login(email, password):
     @author Agustin
     """
     return supabase.auth.sign_in_with_password({"email": email, "password": password})
+
+
+def logout(access_token):
+    """
+    Cierra localmente la sesión de Supabase representada por un access token.
+
+    @version 1.0
+    @param access_token: JWT Bearer de la sesión que se desea cerrar.
+    @author Agustin
+    """
+    response = httpx.post(
+        f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/logout",
+        params={"scope": "local"},
+        headers={
+            "apikey": settings.SUPABASE_KEY,
+            "Authorization": f"Bearer {access_token}",
+        },
+    )
+    response.raise_for_status()
