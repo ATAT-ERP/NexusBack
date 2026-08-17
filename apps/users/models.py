@@ -3,6 +3,11 @@ from django.db import models
 
 class User(models.Model):
     id = models.UUIDField(primary_key=True)
+    email = models.EmailField(
+        unique=True,
+        null=True,
+        blank=True,
+    )
     first_name = models.CharField(max_length=150, blank=True, default="")
     last_name = models.CharField(max_length=150, blank=True, default="")
     avatar_path = models.CharField(

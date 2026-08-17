@@ -76,9 +76,11 @@ explícitas se reservan para operaciones especiales.
 PostgreSQL alojado en Supabase es la base de datos del proyecto. Cada módulo es
 responsable de sus propias migraciones Django y las versiona junto con la app.
 
-Supabase Auth es el sistema de autenticación previsto. Su integración y la
-validación de JWT en NexusBack todavía se incorporarán cuando exista esa
-necesidad; NexusBack no almacena contraseñas.
+Supabase Auth se utiliza para las operaciones de autenticación implementadas
+por los módulos que lo requieren, incluidos el registro y el inicio de sesión.
+La validación de JWT/Bearer para proteger endpoints todavía está pendiente;
+NexusBack no almacena contraseñas. Los detalles de `users` se documentan en
+`docs/modules/USERS.md`.
 
 ## Documentación por módulo
 

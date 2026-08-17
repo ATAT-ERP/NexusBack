@@ -10,6 +10,11 @@ El identificador es un UUID pensado para coincidir con el UUID de Supabase
 Auth. Actualmente no existe una clave foránea física entre `public.users` y
 `auth.users`.
 
+Supabase Auth es la fuente de verdad de identidad y autenticación.
+`public.users.email` es una copia operativa para consultas del ERP. Los nuevos
+registros guardan el mismo email usado en Supabase Auth; los usuarios históricos
+pueden conservar temporalmente `email = null`.
+
 ## Modelo actual
 
 La tabla física es `public.users` y contiene los siguientes campos:
@@ -17,6 +22,7 @@ La tabla física es `public.users` y contiene los siguientes campos:
 | Campo | Descripción |
 | --- | --- |
 | `id` | UUID y clave primaria del perfil. |
+| `email` | Copia operativa del email; puede ser `null` en usuarios históricos. |
 | `first_name` | Nombre; puede comenzar vacío. |
 | `last_name` | Apellido; puede comenzar vacío. |
 | `avatar_path` | Ruta del avatar opcional. |
@@ -95,7 +101,7 @@ tokens al cliente
 
 ```text
 GET    /api/users/
-POST   /api/users/
+GET    /api/users/search/?q=valor
 POST   /api/users/register/
 POST   /api/users/login/
 
@@ -105,6 +111,14 @@ PATCH  /api/users/<uuid>/
 ```
 
 `DELETE` no está implementado actualmente.
+
+La creación directa de perfiles mediante `POST /api/users/` no está disponible:
+todo usuario nuevo debe pasar por `POST /api/users/register/`. El email es una
+copia operativa de solo lectura en el CRUD normal; un futuro cambio de email
+deberá actualizar primero Supabase Auth y luego `public.users`.
+
+La búsqueda consulta únicamente `public.users` por nombre, apellido o email,
+sin distinguir mayúsculas y minúsculas.
 
 ## Errores
 

@@ -8,12 +8,14 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             "id",
+            "email",
             "first_name",
             "last_name",
             "avatar_path",
             "is_active",
             "is_system_admin",
         )
+        read_only_fields = ("email",)
 
 
 class RegisterSerializer(serializers.Serializer):

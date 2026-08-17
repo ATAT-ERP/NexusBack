@@ -27,7 +27,7 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-AUTH-001` | Autenticación ausente o inválida. No distingue públicamente entre token inexistente, inválido o vencido. | `401 Unauthorized` | `No fue posible autenticar la solicitud.` |
 | `NEX-USR-001` | La identidad autenticada por Supabase no tiene un perfil local válido en NexusBack. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-USR-002` | El perfil local existe pero `is_active = False`. | `403 Forbidden` | `No fue posible autorizar la operación.` |
-| `NEX-USR-003` | Los datos enviados para crear o actualizar un usuario no superan la validación del serializer. | `400 Bad Request` | `Los datos enviados no son válidos.` |
+| `NEX-USR-003` | Los datos de entrada enviados al módulo `users` no superan la validación. | `400 Bad Request` | `Los datos enviados no son válidos.` |
 | `NEX-USR-004` | Se solicitó un usuario que no existe. | `404 Not Found` | `Usuario no encontrado.` |
 | `NEX-USR-005` | Supabase Auth no creó una cuenta durante el registro. | `502 Bad Gateway` | `No fue posible crear la cuenta.` |
 | `NEX-USR-006` | La cuenta fue creada en Supabase Auth, pero no se pudo crear su perfil local. | `500 Internal Server Error` | `No fue posible completar el registro.` |
@@ -37,6 +37,6 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-PERM-001` | El usuario autenticado no posee autorización suficiente para la operación. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-PERM-002` | La operación requiere `is_system_admin = True`, pero el usuario no es administrador global. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 
-La validación del JWT de Supabase y la conversión de estos casos a respuestas
-HTTP se incorporarán junto con una capa de autenticación real. Hasta entonces,
-este documento define la convención y no implica una implementación funcional.
+El registro y el inicio de sesión mediante Supabase Auth están implementados,
+y los errores conocidos de Auth se traducen a códigos HTTP de NexusBack. La
+validación de JWT para proteger endpoints todavía está pendiente.

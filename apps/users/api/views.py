@@ -1,7 +1,9 @@
 import logging
 
+from django.db.models import Q
 from django.http import Http404
 from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -45,7 +47,6 @@ def _auth_error(error, code, message, http_status, operation):
 class UserViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
-    mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
@@ -84,6 +85,26 @@ class UserViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return super().handle_exception(error)
+
+    @action(detail=False, methods=["get"])
+    def search(self, request):
+        """
+        Busca usuarios por nombre, apellido o correo electrónico.
+
+        @version 1.0
+        @param request Solicitud que contiene el parámetro de búsqueda.
+        @author Agustin
+        """
+        query = request.query_params.get("q", "").strip()
+        if not query:
+            raise ValidationError({"q": ["Este parámetro es obligatorio."]})
+
+        users = self.get_queryset().filter(
+            Q(first_name__icontains=query)
+            | Q(last_name__icontains=query)
+            | Q(email__icontains=query)
+        )
+        return Response(self.get_serializer(users, many=True).data)
 
 
 class RegisterView(APIView):
@@ -127,7 +148,10 @@ class RegisterView(APIView):
             )
 
         try:
-            user = User.objects.create(id=user_id)
+            user = User.objects.create(
+                id=user_id,
+                email=serializer.validated_data["email"],
+            )
         except Exception:
             return Response(
                 {
