@@ -14,3 +14,13 @@ class UserSerializer(serializers.ModelSerializer):
             "is_active",
             "is_system_admin",
         )
+
+
+class RegisterSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)

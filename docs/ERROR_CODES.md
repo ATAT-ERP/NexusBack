@@ -29,6 +29,11 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-USR-002` | El perfil local existe pero `is_active = False`. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-USR-003` | Los datos enviados para crear o actualizar un usuario no superan la validación del serializer. | `400 Bad Request` | `Los datos enviados no son válidos.` |
 | `NEX-USR-004` | Se solicitó un usuario que no existe. | `404 Not Found` | `Usuario no encontrado.` |
+| `NEX-USR-005` | Supabase Auth no creó una cuenta durante el registro. | `502 Bad Gateway` | `No fue posible crear la cuenta.` |
+| `NEX-USR-006` | La cuenta fue creada en Supabase Auth, pero no se pudo crear su perfil local. | `500 Internal Server Error` | `No fue posible completar el registro.` |
+| `NEX-USR-007` | Supabase Auth alcanzó temporalmente un límite de solicitudes de autenticación. | `429 Too Many Requests` | `Se alcanzó temporalmente el límite de solicitudes. Intente nuevamente más tarde.` |
+| `NEX-USR-008` | Las credenciales de acceso no son válidas. | `401 Unauthorized` | `Email o contraseña incorrectos.` |
+| `NEX-USR-009` | Supabase Auth no pudo iniciar sesión. | `502 Bad Gateway` | `No fue posible iniciar sesión.` |
 | `NEX-PERM-001` | El usuario autenticado no posee autorización suficiente para la operación. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-PERM-002` | La operación requiere `is_system_admin = True`, pero el usuario no es administrador global. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 

@@ -79,6 +79,18 @@ for variable_name in REQUIRED_POSTGRES_ENV_VARS:
     if not os.getenv(variable_name):
         raise ImproperlyConfigured(f"Missing required environment variable: {variable_name}")
 
+REQUIRED_SUPABASE_ENV_VARS = (
+    "SUPABASE_URL",
+    "SUPABASE_KEY",
+)
+
+for variable_name in REQUIRED_SUPABASE_ENV_VARS:
+    if not os.getenv(variable_name):
+        raise ImproperlyConfigured(f"Missing required environment variable: {variable_name}")
+
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
