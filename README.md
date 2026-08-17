@@ -29,7 +29,9 @@ identidad, las credenciales y las sesiones del módulo `users`.
    ```
 
 2. Complete en `.env` una clave local de Django, las variables de PostgreSQL y
-   las variables de Supabase requeridas. No versione ese archivo.
+   las variables de Supabase requeridas. Si PortalWeb se ejecuta en otro origen,
+   configure también `CORS_ALLOWED_ORIGINS` con una lista separada por comas. No
+   versione ese archivo.
 
 3. Cree y active un entorno virtual, e instale las dependencias:
 
