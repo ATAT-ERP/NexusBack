@@ -15,12 +15,14 @@ identidad, las credenciales y las sesiones del módulo `users`.
 - Las operaciones protegidas usan `Authorization: Bearer <access_token>`.
 - NexusBack no expone actualmente un endpoint de refresh de sesión.
 
-## Requisitos
+## Configuración
 
 - Python 3.11 o superior
 - `pip` o Docker Compose
 
-## Preparación local
+```env
+DJANGO_SECRET_KEY=your-local-secret-key
+```
 
 1. Cree el archivo de configuración local a partir del ejemplo:
 
