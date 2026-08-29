@@ -1,9 +1,12 @@
 import uuid
 
-from django.db.models import Q
+from django.conf import settings
+from django.db.models import Q, Sum
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from apps.documents.api.serializers import (
     CompanyQuery,
@@ -59,6 +62,31 @@ class DocumentViewSet(
             Document,
             id=document_id,
             company_id=query_serializer.validated_data["company_id"],
+        )
+
+    @action(detail=False, methods=["get"])
+    def usage(self, request):
+        """
+        Devuelve el uso y espacio disponible de documentos para una Company.
+
+        @version 1.0
+        @author Agustin
+        """
+        query = CompanyQuery(data=request.query_params)
+        query.is_valid(raise_exception=True)
+
+        used = (
+            Document.objects.filter(company_id=query.validated_data["company_id"])
+            .aggregate(used=Sum("size"))["used"]
+            or 0
+        )
+        limit = settings.DOCUMENT_COMPANY_LIMIT_BYTES
+        return Response(
+            {
+                "used": used,
+                "limit": limit,
+                "available": max(limit - used, 0),
+            }
         )
 
     def get_queryset(self):
