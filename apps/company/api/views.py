@@ -12,6 +12,42 @@ from apps.company.models import Company, normalize_tax_id
 logger = logging.getLogger(__name__)
 
 
+class CompanyListView(generics.ListCreateAPIView):
+    pagination_class = None
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CompanyCreateSerializer
+        return CompanySerializer
+
+    def get_queryset(self):
+        queryset = Company.objects.all()
+        
+        is_active_param = self.request.query_params.get("is_active", "true").lower()
+        if is_active_param == "true":
+            queryset = queryset.filter(is_active=True)
+        elif is_active_param == "false":
+            queryset = queryset.filter(is_active=False)
+        elif is_active_param == "all":
+            pass
+        else:
+            queryset = queryset.filter(is_active=True)
+        
+        return queryset
+
+    def handle_exception(self, error):
+        if isinstance(error, serializers.ValidationError):
+            return Response(
+                {
+                    "code": "NEX-COM-001",
+                    "message": "Los datos enviados no son válidos.",
+                    "errors": error.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().handle_exception(error)
+
+
 class CompanyCreateView(generics.CreateAPIView):
     serializer_class = CompanyCreateSerializer
 
