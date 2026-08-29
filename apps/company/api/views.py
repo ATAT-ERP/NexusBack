@@ -5,7 +5,11 @@ from django.db.models import Q
 from rest_framework import generics, serializers, status
 from rest_framework.response import Response
 
-from apps.company.api.serializers import CompanyCreateSerializer, CompanySerializer
+from apps.company.api.serializers import (
+    CompanyCreateSerializer,
+    CompanySerializer,
+    CompanyUpdateSerializer,
+)
 from apps.company.models import Company, normalize_tax_id
 
 
@@ -85,10 +89,14 @@ class CompanySearchView(generics.ListAPIView):
         return queryset.distinct()
 
 
-class CompanyDetailView(generics.RetrieveAPIView):
-    serializer_class = CompanySerializer
+class CompanyDetailView(generics.RetrieveUpdateAPIView):
     queryset = Company.objects.all()
     lookup_field = "id"
+
+    def get_serializer_class(self):
+        if self.request.method in ("PUT", "PATCH"):
+            return CompanyUpdateSerializer
+        return CompanySerializer
 
     def handle_exception(self, error):
         from django.http import Http404
@@ -99,5 +107,14 @@ class CompanyDetailView(generics.RetrieveAPIView):
                     "message": "Compañía no encontrada.",
                 },
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        if isinstance(error, serializers.ValidationError):
+            return Response(
+                {
+                    "code": "NEX-COM-001",
+                    "message": "Los datos enviados no son válidos.",
+                    "errors": error.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
         return super().handle_exception(error)
