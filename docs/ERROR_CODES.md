@@ -39,6 +39,8 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-USR-012` | Error interno al validar el perfil del usuario autenticado. | `500 Internal Server Error` | `Error interno al validar el perfil del usuario autenticado.` |
 | `NEX-USR-013` | Supabase Auth no pudo cerrar la sesión solicitada. | `502 Bad Gateway` | `No fue posible cerrar la sesión.` |
 | `NEX-USR-014` | Supabase Auth no pudo actualizar la contraseña del usuario autenticado. | `502 Bad Gateway` | `No se pudo actualizar la contraseña.` |
+| `NEX-DOC-001` | Los datos de entrada enviados al módulo `documents` no superan la validación. | `400 Bad Request` | `Los datos enviados no son válidos.` |
+| `NEX-DOC-002` | El documento solicitado no existe o no está disponible dentro de la Company indicada. | `404 Not Found` | `Documento no encontrado.` |
 | `NEX-PERM-001` | El usuario autenticado no posee autorización suficiente para la operación. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-PERM-002` | La operación requiere `is_system_admin = True`, pero el usuario no es administrador global. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 

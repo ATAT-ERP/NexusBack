@@ -4,8 +4,9 @@ from django.conf import settings
 from django.db.models import Q, Sum
 from django.http import Http404
 from django.shortcuts import get_object_or_404
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from apps.documents.api.serializers import (
@@ -56,13 +57,35 @@ class DocumentViewSet(
         try:
             document_id = uuid.UUID(self.kwargs["pk"])
         except (TypeError, ValueError):
-            raise Http404
+            self._not_found()
 
-        return get_object_or_404(
-            Document,
-            id=document_id,
-            company_id=query_serializer.validated_data["company_id"],
-        )
+        try:
+            return get_object_or_404(
+                Document,
+                id=document_id,
+                company_id=query_serializer.validated_data["company_id"],
+            )
+        except Http404:
+            self._not_found()
+
+    def handle_exception(self, error):
+        """
+        Normaliza los errores de validación de la API de documentos.
+
+        @version 1.0
+        @param error Excepción capturada durante la solicitud.
+        @author Agustin
+        """
+        if isinstance(error, ValidationError):
+            return Response(
+                {
+                    "code": "NEX-DOC-001",
+                    "message": "Los datos enviados no son válidos.",
+                    "errors": error.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().handle_exception(error)
 
     @action(detail=False, methods=["get"])
     def usage(self, request):
@@ -112,3 +135,15 @@ class DocumentViewSet(
             )
 
         return documents.order_by("-created_at")
+
+    @staticmethod
+    def _not_found():
+        """
+        Detiene la operación con la respuesta pública de documento no encontrado.
+
+        @version 1.0
+        @author Agustin
+        """
+        raise NotFound(
+            {"code": "NEX-DOC-002", "message": "Documento no encontrado."}
+        )

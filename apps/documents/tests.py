@@ -35,6 +35,19 @@ class DocumentTests(APITestCase):
             return self.client.get(self.usage_url)
         return self.client.get(self.usage_url, {"company_id": company_id})
 
+    def assert_validation_error(self, response, field):
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["code"], "NEX-DOC-001")
+        self.assertEqual(response.data["message"], "Los datos enviados no son válidos.")
+        self.assertIn(field, response.data["errors"])
+
+    def assert_document_not_found(self, response):
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.data,
+            {"code": "NEX-DOC-002", "message": "Documento no encontrado."},
+        )
+
     def test_lists_only_documents_for_requested_company(self):
         company_id = uuid.uuid4()
         document = self.create_document(company_id)
@@ -154,22 +167,19 @@ class DocumentTests(APITestCase):
     def test_requires_company_id(self):
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("company_id", response.data)
+        self.assert_validation_error(response, "company_id")
 
     def test_rejects_invalid_uuids(self):
         response = self.client.get(self.url, {"company_id": "not-a-uuid"})
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("company_id", response.data)
+        self.assert_validation_error(response, "company_id")
 
         response = self.client.get(
             self.url,
             {"company_id": uuid.uuid4(), "category_id": "not-a-uuid"},
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("category_id", response.data)
+        self.assert_validation_error(response, "category_id")
 
     def test_orders_documents_by_created_at_descending(self):
         company_id = uuid.uuid4()
@@ -234,8 +244,7 @@ class DocumentTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("name", response.data)
+        self.assert_validation_error(response, "name")
 
     def test_rejects_a_blank_document_name(self):
         company_id = uuid.uuid4()
@@ -247,8 +256,7 @@ class DocumentTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("name", response.data)
+        self.assert_validation_error(response, "name")
 
     def test_updates_a_category(self):
         company_id = uuid.uuid4()
@@ -319,8 +327,7 @@ class DocumentTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("company_id", response.data)
+        self.assert_validation_error(response, "company_id")
 
     def test_patch_rejects_an_invalid_company_id(self):
         document = self.create_document(uuid.uuid4())
@@ -331,8 +338,7 @@ class DocumentTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("company_id", response.data)
+        self.assert_validation_error(response, "company_id")
 
     def test_patch_rejects_an_invalid_category_id(self):
         company_id = uuid.uuid4()
@@ -344,8 +350,7 @@ class DocumentTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("category_id", response.data)
+        self.assert_validation_error(response, "category_id")
 
     def test_patch_returns_not_found_for_an_unknown_document(self):
         response = self.client.patch(
@@ -354,7 +359,7 @@ class DocumentTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assert_document_not_found(response)
 
     def test_patch_returns_not_found_for_an_invalid_document_id(self):
         response = self.client.patch(
@@ -363,7 +368,7 @@ class DocumentTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assert_document_not_found(response)
 
     def test_patch_cannot_update_a_document_from_another_company(self):
         document = self.create_document(uuid.uuid4())
@@ -375,7 +380,7 @@ class DocumentTests(APITestCase):
         )
 
         document.refresh_from_db()
-        self.assertEqual(response.status_code, 404)
+        self.assert_document_not_found(response)
         self.assertEqual(document.name, "Documento")
 
     def test_patch_does_not_expose_storage_key(self):
@@ -486,14 +491,12 @@ class DocumentTests(APITestCase):
     def test_usage_requires_company_id(self):
         response = self.get_usage()
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("company_id", response.data)
+        self.assert_validation_error(response, "company_id")
 
     def test_usage_rejects_an_invalid_company_id(self):
         response = self.get_usage("not-a-uuid")
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("company_id", response.data)
+        self.assert_validation_error(response, "company_id")
 
     def test_usage_allows_a_company_without_a_record(self):
         response = self.get_usage(uuid.uuid4())
