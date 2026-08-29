@@ -89,7 +89,7 @@ class CompanySearchView(generics.ListAPIView):
         return queryset.distinct()
 
 
-class CompanyDetailView(generics.RetrieveUpdateAPIView):
+class CompanyDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Company.objects.all()
     lookup_field = "id"
 
@@ -97,6 +97,10 @@ class CompanyDetailView(generics.RetrieveUpdateAPIView):
         if self.request.method in ("PUT", "PATCH"):
             return CompanyUpdateSerializer
         return CompanySerializer
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save()
 
     def handle_exception(self, error):
         from django.http import Http404
