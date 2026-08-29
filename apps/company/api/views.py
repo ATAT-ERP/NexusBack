@@ -83,3 +83,21 @@ class CompanySearchView(generics.ListAPIView):
             queryset = queryset | Company.objects.filter(tax_id=normalized)
 
         return queryset.distinct()
+
+
+class CompanyDetailView(generics.RetrieveAPIView):
+    serializer_class = CompanySerializer
+    queryset = Company.objects.all()
+    lookup_field = "id"
+
+    def handle_exception(self, error):
+        from django.http import Http404
+        if isinstance(error, Http404):
+            return Response(
+                {
+                    "code": "NEX-COM-004",
+                    "message": "Compañía no encontrada.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return super().handle_exception(error)
