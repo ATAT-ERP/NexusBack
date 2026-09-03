@@ -41,6 +41,7 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-USR-014` | Supabase Auth no pudo actualizar la contraseña del usuario autenticado. | `502 Bad Gateway` | `No se pudo actualizar la contraseña.` |
 | `NEX-PERM-001` | El usuario autenticado no posee autorización suficiente para la operación. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-PERM-002` | La operación requiere `is_system_admin = True`, pero el usuario no es administrador global. | `403 Forbidden` | `No fue posible autorizar la operación.` |
+| `NEX-COM-001` | Los datos de entrada enviados al módulo `company` no superan la validación, incluido un CUIT estructuralmente inválido o duplicado. | `400 Bad Request` | `Los datos enviados no son válidos.` |
 
 El registro y el inicio de sesión mediante Supabase Auth están implementados,
 y los errores conocidos de Auth se traducen a códigos HTTP de NexusBack. Los
