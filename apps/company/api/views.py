@@ -12,48 +12,33 @@ from apps.company.api.serializers import (
 )
 from apps.company.models import Company, normalize_tax_id
 
-
 logger = logging.getLogger(__name__)
 
 
 class CompanyListView(generics.ListCreateAPIView):
-    pagination_class = None
+    """
+    Lista compañías registradas y permite dar de alta una nueva.
+    """
 
     def get_serializer_class(self):
-        if self.request.method == 'POST':
+        if self.request.method == "POST":
             return CompanyCreateSerializer
         return CompanySerializer
 
     def get_queryset(self):
-        queryset = Company.objects.all()
-        
-        is_active_param = self.request.query_params.get("is_active", "true").lower()
-        if is_active_param == "true":
-            queryset = queryset.filter(is_active=True)
-        elif is_active_param == "false":
-            queryset = queryset.filter(is_active=False)
-        elif is_active_param == "all":
-            pass
-        else:
-            queryset = queryset.filter(is_active=True)
-        
-        return queryset
+        """
+        Retorna compañías filtradas por estado. Por defecto solo activas.
+        """
+        is_active = self.request.query_params.get("is_active", "true").lower()
 
-    def handle_exception(self, error):
-        if isinstance(error, serializers.ValidationError):
-            return Response(
-                {
-                    "code": "NEX-COM-001",
-                    "message": "Los datos enviados no son válidos.",
-                    "errors": error.detail,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return super().handle_exception(error)
+        if is_active == "all":
+            return Company.objects.all()
 
+        if is_active == "false":
+            return Company.objects.filter(is_active=False)
 
-class CompanyCreateView(generics.CreateAPIView):
-    serializer_class = CompanyCreateSerializer
+        # Caso por defecto: solo activas
+        return Company.objects.filter(is_active=True)
 
     def handle_exception(self, error):
         if isinstance(error, serializers.ValidationError):
@@ -69,8 +54,11 @@ class CompanyCreateView(generics.CreateAPIView):
 
 
 class CompanySearchView(generics.ListAPIView):
+    """
+    Búsqueda de compañías por nombre, razón social o CUIT.
+    """
+
     serializer_class = CompanySerializer
-    pagination_class = None
 
     def get_queryset(self):
         raw_query = self.request.query_params.get("q", "")
@@ -90,6 +78,10 @@ class CompanySearchView(generics.ListAPIView):
 
 
 class CompanyDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Detalle, actualización parcial/total y baja lógica de una compañía.
+    """
+
     queryset = Company.objects.all()
     lookup_field = "id"
 
@@ -104,6 +96,7 @@ class CompanyDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def handle_exception(self, error):
         from django.http import Http404
+
         if isinstance(error, Http404):
             return Response(
                 {
