@@ -1,4 +1,9 @@
-"""Tests para el alta y las validaciones de compañías."""
+"""
+Tests para el alta, las validaciones y la búsqueda de compañías.
+
+@version 1.0
+@author Antonio
+"""
 
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -7,8 +12,6 @@ from apps.company.models import Company
 
 
 VALID_TAX_ID = "20000000001"
-VALID_TAX_ID_OTHER = "20999999999"
-INVALID_TAX_ID = "20123456789"
 
 
 class CompanyCreateTests(APITestCase):
@@ -46,7 +49,7 @@ class CompanyCreateTests(APITestCase):
         self.assertEqual(company.type, Company.Type.ORGANIZATION)
         self.assertEqual(company.legal_name, "Org Ejemplo S.A.")
         self.assertEqual(company.tax_id, VALID_TAX_ID)
-        self.assertEqual(company.email, "contacto@org.com")
+        self.assertEqual(company.email, "Contacto@Org.Com")
 
     def test_create_with_legal_name_and_tax_id_empty(self):
         response = self.client.post(
@@ -57,7 +60,7 @@ class CompanyCreateTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         company = Company.objects.get(pk=response.data["id"])
-        self.assertIsNone(company.legal_name)
+        self.assertEqual(company.legal_name, "")
         self.assertIsNone(company.tax_id)
 
     def test_structurally_invalid_tax_id_is_rejected(self):
@@ -88,6 +91,26 @@ class CompanyCreateTests(APITestCase):
                 "type": "organization",
                 "name": "Segunda",
                 "tax_id": "20 000000001",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("tax_id", response.data["errors"])
+
+    def test_duplicate_tax_id_with_the_same_format_is_rejected(self):
+        Company.objects.create(
+            type=Company.Type.INDIVIDUAL,
+            name="Primera",
+            tax_id=VALID_TAX_ID,
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "type": "organization",
+                "name": "Segunda",
+                "tax_id": VALID_TAX_ID,
             },
             format="json",
         )
@@ -134,6 +157,51 @@ class CompanyCreateTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("tax_id", response.data["errors"])
+
+
+class CompanyUpdateTests(APITestCase):
+    def setUp(self):
+        self.company = Company.objects.create(
+            type=Company.Type.INDIVIDUAL,
+            name="Primera",
+            tax_id=VALID_TAX_ID,
+        )
+        self.other = Company.objects.create(
+            type=Company.Type.ORGANIZATION,
+            name="Segunda",
+            tax_id="20999999999",
+        )
+
+    def test_patch_allows_the_current_tax_id(self):
+        response = self.client.patch(
+            f"/api/companies/{self.company.id}/",
+            {"tax_id": "20-00000000-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["tax_id"], VALID_TAX_ID)
+
+    def test_patch_rejects_a_tax_id_from_another_company(self):
+        response = self.client.patch(
+            f"/api/companies/{self.company.id}/",
+            {"tax_id": self.other.tax_id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("tax_id", response.data["errors"])
+
+    def test_patch_without_tax_id_keeps_the_current_value(self):
+        response = self.client.patch(
+            f"/api/companies/{self.company.id}/",
+            {"name": "Primera Editada"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.tax_id, VALID_TAX_ID)
 
 
 class CompanySearchTests(APITestCase):
