@@ -6,6 +6,7 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
+from apps.company.models import Company
 from apps.documents.models import Document
 
 
@@ -14,6 +15,10 @@ class DocumentTests(APITestCase):
     usage_url = "/api/documents/usage/"
 
     def create_document(self, company_id, **overrides):
+        Company.objects.get_or_create(
+            id=company_id,
+            defaults={"name": "Compa\u00f1\u00eda de prueba"},
+        )
         defaults = {
             "name": "Documento",
             "original_name": "documento.pdf",

@@ -11,9 +11,8 @@ from rest_framework.response import Response
 
 from apps.documents.api.serializers import (
     CompanyQuery,
+    DocumentSerializer,
     ListQuerySerializer,
-    MetadataSerializer,
-    UpdateSerializer,
 )
 from apps.documents.models import Document
 
@@ -30,19 +29,8 @@ class DocumentViewSet(
     @author Agustin
     """
 
-    serializer_class = MetadataSerializer
+    serializer_class = DocumentSerializer
     http_method_names = ["get", "patch", "head", "options"]
-
-    def get_serializer_class(self):
-        """
-        Usa el serializer de escritura para las actualizaciones parciales.
-
-        @version 1.0
-        @author Agustin
-        """
-        if self.action == "partial_update":
-            return UpdateSerializer
-        return super().get_serializer_class()
 
     def get_object(self):
         """

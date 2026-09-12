@@ -5,7 +5,12 @@ from django.db import models
 
 class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    company_id = models.UUIDField()
+    company = models.ForeignKey(
+        "companies.Company",
+        db_column="company_id",
+        on_delete=models.PROTECT,
+        related_name="documents",
+    )
     name = models.CharField(max_length=255)
     original_name = models.CharField(max_length=255)
     storage_key = models.CharField(max_length=500)
@@ -17,4 +22,3 @@ class Document(models.Model):
 
     class Meta:
         db_table = "documents"
-
