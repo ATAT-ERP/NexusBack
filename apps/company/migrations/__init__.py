@@ -1,0 +1,1 @@
+# Obligatorio para que Django descubra y gestione las migraciones de esta app. :/

@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "apps.documents.apps.DocumentsConfig",
     "apps.users.apps.UsersConfig",
+    "apps.company.apps.CompanyConfig",
 ]
 
 REST_FRAMEWORK = {
