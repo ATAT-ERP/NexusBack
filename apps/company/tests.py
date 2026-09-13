@@ -1,18 +1,107 @@
-"""Tests para el alta y las validaciones de compañías."""
+"""
+Tests para el alta, las validaciones y la búsqueda de compañías.
 
+@version 1.0
+@author Antonio
+"""
+
+import uuid
+from unittest.mock import patch
+
+from django.db import IntegrityError, transaction
+from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.company.models import Company
+from apps.company.models import Company, CompanyMember, CompanyRole
+from apps.users.models import User
 
 
 VALID_TAX_ID = "20000000001"
-VALID_TAX_ID_OTHER = "20999999999"
-INVALID_TAX_ID = "20123456789"
+
+
+class CompanyMemberModelTests(TestCase):
+    def setUp(self):
+        self.owner_role = CompanyRole.objects.get(code="owner")
+        self.member_role = CompanyRole.objects.get(code="member")
+        self.company = Company.objects.create(name="Compañía Uno")
+        self.other_company = Company.objects.create(name="Compañía Dos")
+        self.user = User.objects.create(id=uuid.uuid4(), email="uno@example.com")
+        self.other_user = User.objects.create(
+            id=uuid.uuid4(), email="dos@example.com"
+        )
+
+    def test_initial_roles_exist(self):
+        self.assertEqual(
+            set(CompanyRole.objects.values_list("code", flat=True)),
+            {"owner", "member"},
+        )
+
+    def test_creates_company_role(self):
+        role = CompanyRole.objects.create(code="auditor")
+
+        self.assertEqual(role.code, "auditor")
+
+    def test_creates_company_member_with_its_role(self):
+        membership = CompanyMember.objects.create(
+            user=self.user,
+            company=self.company,
+            role=self.owner_role,
+        )
+
+        self.assertEqual(membership.role, self.owner_role)
+        self.assertEqual(list(self.company.memberships.all()), [membership])
+
+    def test_same_user_cannot_be_member_twice_in_a_company(self):
+        CompanyMember.objects.create(
+            user=self.user,
+            company=self.company,
+            role=self.owner_role,
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                CompanyMember.objects.create(
+                    user=self.user,
+                    company=self.company,
+                    role=self.member_role,
+                )
+
+    def test_same_user_can_belong_to_different_companies(self):
+        CompanyMember.objects.create(
+            user=self.user,
+            company=self.company,
+            role=self.owner_role,
+        )
+        membership = CompanyMember.objects.create(
+            user=self.user,
+            company=self.other_company,
+            role=self.member_role,
+        )
+
+        self.assertEqual(membership.company, self.other_company)
+
+    def test_different_users_can_belong_to_the_same_company(self):
+        CompanyMember.objects.create(
+            user=self.user,
+            company=self.company,
+            role=self.owner_role,
+        )
+        membership = CompanyMember.objects.create(
+            user=self.other_user,
+            company=self.company,
+            role=self.member_role,
+        )
+
+        self.assertEqual(membership.user, self.other_user)
 
 
 class CompanyCreateTests(APITestCase):
     url = "/api/companies/"
+
+    def setUp(self):
+        self.user = User.objects.create(id=uuid.uuid4(), email="creator@example.com")
+        self.client.force_authenticate(user=self.user)
 
     def test_create_individual_without_tax_info(self):
         response = self.client.post(
@@ -46,7 +135,7 @@ class CompanyCreateTests(APITestCase):
         self.assertEqual(company.type, Company.Type.ORGANIZATION)
         self.assertEqual(company.legal_name, "Org Ejemplo S.A.")
         self.assertEqual(company.tax_id, VALID_TAX_ID)
-        self.assertEqual(company.email, "contacto@org.com")
+        self.assertEqual(company.email, "Contacto@Org.Com")
 
     def test_create_with_legal_name_and_tax_id_empty(self):
         response = self.client.post(
@@ -57,7 +146,7 @@ class CompanyCreateTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         company = Company.objects.get(pk=response.data["id"])
-        self.assertIsNone(company.legal_name)
+        self.assertEqual(company.legal_name, "")
         self.assertIsNone(company.tax_id)
 
     def test_structurally_invalid_tax_id_is_rejected(self):
@@ -88,6 +177,26 @@ class CompanyCreateTests(APITestCase):
                 "type": "organization",
                 "name": "Segunda",
                 "tax_id": "20 000000001",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("tax_id", response.data["errors"])
+
+    def test_duplicate_tax_id_with_the_same_format_is_rejected(self):
+        Company.objects.create(
+            type=Company.Type.INDIVIDUAL,
+            name="Primera",
+            tax_id=VALID_TAX_ID,
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "type": "organization",
+                "name": "Segunda",
+                "tax_id": VALID_TAX_ID,
             },
             format="json",
         )
@@ -134,6 +243,101 @@ class CompanyCreateTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("tax_id", response.data["errors"])
+
+
+class CompanyOwnerCreationTests(APITestCase):
+    url = "/api/companies/"
+
+    def setUp(self):
+        self.user = User.objects.create(id=uuid.uuid4(), email="owner@example.com")
+
+    def test_authenticated_post_creates_an_owner_membership(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {"type": "individual", "name": "Compañía con owner"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        company = Company.objects.get(pk=response.data["id"])
+        membership = CompanyMember.objects.get(company=company)
+        self.assertEqual(CompanyMember.objects.filter(company=company).count(), 1)
+        self.assertEqual(membership.user, self.user)
+        self.assertEqual(membership.company, company)
+        self.assertEqual(membership.role.code, "owner")
+
+    def test_unauthenticated_post_does_not_create_a_company(self):
+        response = self.client.post(
+            self.url,
+            {"type": "individual", "name": "Sin autenticación"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(Company.objects.filter(name="Sin autenticación").exists())
+
+    def test_membership_failure_rolls_back_the_company(self):
+        self.client.force_authenticate(user=self.user)
+
+        with patch(
+            "apps.company.api.views.CompanyMember.objects.create",
+            side_effect=IntegrityError,
+        ):
+            with self.assertRaises(IntegrityError):
+                self.client.post(
+                    self.url,
+                    {"type": "individual", "name": "Compañía revertida"},
+                    format="json",
+                )
+
+        self.assertFalse(Company.objects.filter(name="Compañía revertida").exists())
+
+
+class CompanyUpdateTests(APITestCase):
+    def setUp(self):
+        self.company = Company.objects.create(
+            type=Company.Type.INDIVIDUAL,
+            name="Primera",
+            tax_id=VALID_TAX_ID,
+        )
+        self.other = Company.objects.create(
+            type=Company.Type.ORGANIZATION,
+            name="Segunda",
+            tax_id="20999999999",
+        )
+
+    def test_patch_allows_the_current_tax_id(self):
+        response = self.client.patch(
+            f"/api/companies/{self.company.id}/",
+            {"tax_id": "20-00000000-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["tax_id"], VALID_TAX_ID)
+
+    def test_patch_rejects_a_tax_id_from_another_company(self):
+        response = self.client.patch(
+            f"/api/companies/{self.company.id}/",
+            {"tax_id": self.other.tax_id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("tax_id", response.data["errors"])
+
+    def test_patch_without_tax_id_keeps_the_current_value(self):
+        response = self.client.patch(
+            f"/api/companies/{self.company.id}/",
+            {"name": "Primera Editada"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.tax_id, VALID_TAX_ID)
 
 
 class CompanySearchTests(APITestCase):

@@ -38,10 +38,20 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_URLS_REGEX = r"^/api/.*$"
 
+MEGABYTE = 1024 * 1024
+DOCUMENT_MAX_SIZE_BYTES = int(os.getenv("DOCUMENT_MAX_SIZE_MB", "6")) * MEGABYTE
+DOCUMENT_COMPANY_LIMIT_BYTES = (
+    int(os.getenv("DOCUMENT_COMPANY_LIMIT_MB", "12")) * MEGABYTE
+)
+DOCUMENT_STORAGE_SAFE_LIMIT_BYTES = (
+    int(os.getenv("DOCUMENT_STORAGE_SAFE_LIMIT_MB", "40")) * MEGABYTE
+)
+
 INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
+    "apps.documents.apps.DocumentsConfig",
     "apps.users.apps.UsersConfig",
     "apps.company.apps.CompanyConfig",
 ]
@@ -91,6 +101,7 @@ for variable_name in REQUIRED_POSTGRES_ENV_VARS:
 REQUIRED_SUPABASE_ENV_VARS = (
     "SUPABASE_URL",
     "SUPABASE_KEY",
+    "SUPABASE_SECRET_KEY",
 )
 
 for variable_name in REQUIRED_SUPABASE_ENV_VARS:
@@ -99,6 +110,7 @@ for variable_name in REQUIRED_SUPABASE_ENV_VARS:
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+SUPABASE_SECRET_KEY = os.environ["SUPABASE_SECRET_KEY"]
 
 DATABASES = {
     "default": {

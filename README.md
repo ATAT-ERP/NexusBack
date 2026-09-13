@@ -76,6 +76,7 @@ docker compose exec nexusback python manage.py check
 
 - [Arquitectura](docs/ARCHITECTURE.md)
 - [Módulo users](docs/modules/USERS.md)
+- [Módulo documents](docs/modules/DOCUMENTS.md)
 - [Códigos de error](docs/ERROR_CODES.md)
 
 ## Instrucciones para agentes de desarrollo
@@ -83,6 +84,7 @@ docker compose exec nexusback python manage.py check
 NexusBack incluye instrucciones versionadas para asistentes de código y agentes internos.
 
 - `AGENTS.md`: convenciones y reglas generales del repositorio.
+- `.agents/skills/backend-code/`: criterios transversales para implementar o modificar lógica dentro de código existente.
 - `.agents/skills/backend-module/`: guía para crear nuevos módulos respetando la arquitectura existente.
 - `.agents/skills/backend-endpoint/`: guía para crear, modificar o revisar endpoints.
 - `CLAUDE.md` y `.gemini/settings.json`: integración con herramientas compatibles.

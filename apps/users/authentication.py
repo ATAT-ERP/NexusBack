@@ -22,13 +22,15 @@ class SupabaseBearerAuthentication(BaseAuthentication):
 
     def authenticate(self, request):
         """
-        Valida el token y devuelve el perfil local activo del usuario.
+        Valida un Bearer presente y devuelve el perfil local activo del usuario.
 
-        @version 1.0
+        @version 1.1
         @param request: Solicitud HTTP autenticada mediante Bearer.
         @author Agustin
         """
         token = self._get_bearer_token(request)
+        if token is None:
+            return None
 
         try:
             response = supabase.auth.get_user(token)
@@ -77,13 +79,15 @@ class SupabaseBearerAuthentication(BaseAuthentication):
 
     def _get_bearer_token(self, request):
         """
-        Extrae un token Bearer del header Authorization.
+        Extrae un token Bearer del header Authorization cuando está presente.
 
-        @version 1.0
+        @version 1.1
         @param request: Solicitud HTTP que contiene el header Authorization.
         @author Agustin
         """
         authorization = get_authorization_header(request).split()
+        if not authorization:
+            return None
         if len(authorization) != 2 or authorization[0].lower() != b"bearer":
             raise self._authentication_error()
 

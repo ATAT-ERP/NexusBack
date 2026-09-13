@@ -1,33 +1,58 @@
-import logging
 import re
 
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import generics, serializers, status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.company.api.serializers import (
-    CompanyCreateSerializer,
-    CompanySerializer,
-    CompanyUpdateSerializer,
-)
-from apps.company.models import Company, normalize_tax_id
-
-logger = logging.getLogger(__name__)
-
+from apps.company.api.serializers import CompanySerializer
+from apps.company.models import Company, CompanyMember, CompanyRole, normalize_tax_id
+from apps.users.authentication import SupabaseBearerAuthentication
 
 class CompanyListView(generics.ListCreateAPIView):
     """
     Lista compañías registradas y permite dar de alta una nueva.
+
+    @version 1.0
+    @author Antonio
+    @author Uziel
     """
 
-    def get_serializer_class(self):
+    serializer_class = CompanySerializer
+
+    def get_authenticators(self):
         if self.request.method == "POST":
-            return CompanyCreateSerializer
-        return CompanySerializer
+            return [SupabaseBearerAuthentication()]
+        return []
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def perform_create(self, serializer):
+        """
+        Crea una compañía y asigna al usuario creador como owner.
+
+        @version 1.0
+        @author Agustin
+        """
+        with transaction.atomic():
+            company = serializer.save()
+            owner_role = CompanyRole.objects.get(code="owner")
+            CompanyMember.objects.create(
+                user=self.request.user,
+                company=company,
+                role=owner_role,
+            )
 
     def get_queryset(self):
         """
         Retorna compañías filtradas por estado. Por defecto solo activas.
+
+        @version 1.0
+        @author Uziel
         """
         is_active = self.request.query_params.get("is_active", "true").lower()
 
@@ -56,6 +81,9 @@ class CompanyListView(generics.ListCreateAPIView):
 class CompanySearchView(generics.ListAPIView):
     """
     Búsqueda de compañías por nombre, razón social o CUIT.
+
+    @version 1.0
+    @author Antonio
     """
 
     serializer_class = CompanySerializer
@@ -80,15 +108,15 @@ class CompanySearchView(generics.ListAPIView):
 class CompanyDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Detalle, actualización parcial/total y baja lógica de una compañía.
+
+    @version 1.0
+    @author Uziel
     """
 
     queryset = Company.objects.all()
     lookup_field = "id"
 
-    def get_serializer_class(self):
-        if self.request.method in ("PUT", "PATCH"):
-            return CompanyUpdateSerializer
-        return CompanySerializer
+    serializer_class = CompanySerializer
 
     def perform_destroy(self, instance):
         instance.is_active = False
