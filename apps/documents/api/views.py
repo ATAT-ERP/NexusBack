@@ -9,11 +9,12 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from storage3.exceptions import StorageException
 
+from apps.company.models import CompanyMember
 from apps.documents.api.serializers import (
     CompanyQuery,
     DocumentCreateSerializer,
@@ -46,23 +47,23 @@ class DocumentViewSet(
 
     def get_authenticators(self):
         """
-        Exige un Bearer de Supabase para crear documentos.
+        Exige un Bearer de Supabase para crear o listar documentos.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
-        if self.request.method == "POST":
+        if self.action in ("create", "list"):
             return [SupabaseBearerAuthentication()]
         return []
 
     def get_permissions(self):
         """
-        Exige un usuario autenticado para crear documentos.
+        Exige un usuario autenticado para crear o listar documentos.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
-        if self.request.method == "POST":
+        if self.action in ("create", "list"):
             return [IsAuthenticated()]
         return super().get_permissions()
 
@@ -203,14 +204,20 @@ class DocumentViewSet(
 
     def get_queryset(self):
         """
-        Construye el listado filtrado por Company, categoría y búsqueda opcional.
+        Construye el listado de la Company a la que pertenece el usuario.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         query_serializer = ListQuerySerializer(data=self.request.query_params)
         query_serializer.is_valid(raise_exception=True)
         filters = query_serializer.validated_data
+
+        if not CompanyMember.objects.filter(
+            user=self.request.user,
+            company_id=filters["company_id"],
+        ).exists():
+            raise PermissionDenied()
 
         documents = Document.objects.filter(company_id=filters["company_id"])
         category_id = filters.get("category_id")

@@ -11,7 +11,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from storage3.exceptions import StorageApiError
 
-from apps.company.models import Company
+from apps.company.models import Company, CompanyMember, CompanyRole
 from apps.documents.models import Document
 from apps.users.models import User
 
@@ -20,10 +20,20 @@ class DocumentTests(APITestCase):
     url = "/api/documents/"
     usage_url = "/api/documents/usage/"
 
+    def setUp(self):
+        self.user = User.objects.create(id=uuid.uuid4(), email="member@example.com")
+        self.owner_role = CompanyRole.objects.get(code="owner")
+        self.client.force_authenticate(user=self.user)
+
     def create_document(self, company_id, **overrides):
-        Company.objects.get_or_create(
+        company, _ = Company.objects.get_or_create(
             id=company_id,
             defaults={"name": "Compa\u00f1\u00eda de prueba"},
+        )
+        CompanyMember.objects.get_or_create(
+            user=self.user,
+            company=company,
+            defaults={"role": self.owner_role},
         )
         defaults = {
             "name": "Documento",
@@ -170,10 +180,37 @@ class DocumentTests(APITestCase):
         self.assertEqual([item["id"] for item in response.data], [str(document.id)])
 
     def test_returns_an_empty_collection_when_no_documents_match(self):
-        response = self.client.get(self.url, {"company_id": uuid.uuid4()})
+        company_id = uuid.uuid4()
+        company = Company.objects.create(
+            id=company_id,
+            name="Compañía sin documentos",
+        )
+        CompanyMember.objects.create(
+            user=self.user,
+            company=company,
+            role=self.owner_role,
+        )
+
+        response = self.client.get(self.url, {"company_id": company_id})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, [])
+
+    def test_rejects_a_user_who_is_not_a_company_member(self):
+        company_id = uuid.uuid4()
+        company = Company.objects.create(id=company_id, name="Compañía ajena")
+        Document.objects.create(
+            company=company,
+            name="Confidencial",
+            original_name="confidencial.pdf",
+            storage_key="documents/confidencial",
+            mime_type="application/pdf",
+            size=1024,
+        )
+
+        response = self.client.get(self.url, {"company_id": company_id})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_requires_company_id(self):
         response = self.client.get(self.url)
@@ -525,6 +562,15 @@ class DocumentTests(APITestCase):
 
         self.assertNotIn("safe_limit", response.data)
         self.assertNotIn("DOCUMENT_STORAGE_SAFE_LIMIT_BYTES", response.data)
+
+
+class DocumentListAuthenticationTests(APITestCase):
+    url = "/api/documents/"
+
+    def test_requires_authentication(self):
+        response = self.client.get(self.url, {"company_id": uuid.uuid4()})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class DocumentCreateTests(APITestCase):
