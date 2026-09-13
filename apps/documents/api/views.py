@@ -1,6 +1,9 @@
+import logging
 import uuid
 
+import httpx
 from django.conf import settings
+from django.db import DatabaseError
 from django.db.models import Q, Sum
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -9,6 +12,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from storage3.exceptions import StorageException
 
 from apps.documents.api.serializers import (
     CompanyQuery,
@@ -21,6 +25,9 @@ from apps.documents.storage import storage_client
 from apps.users.authentication import SupabaseBearerAuthentication
 
 
+logger = logging.getLogger(__name__)
+
+
 class DocumentViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
@@ -30,7 +37,7 @@ class DocumentViewSet(
     """
     Crea, lista y actualiza la metadata de documentos restringida a una Company.
 
-    @version 2.0
+    @version 2.1
     @author Agustin
     """
 
@@ -84,30 +91,38 @@ class DocumentViewSet(
 
     def perform_create(self, serializer):
         """
-        Sube el archivo y persiste la metadata con la clave física definitiva.
+        Sube el archivo, persiste su metadata y limpia Storage si falla la base.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         uploaded_file = serializer.validated_data["file"]
         company = serializer.validated_data["company"]
         document_id = uuid.uuid4()
         storage_key = f"{company.id}/{document_id}"
-        mime_type = uploaded_file.content_type or "application/octet-stream"
+        mime_type = uploaded_file.content_type
+        bucket = storage_client.storage.from_("documents")
 
-        storage_client.storage.from_("documents").upload(
+        bucket.upload(
             storage_key,
             uploaded_file.read(),
             {"content-type": mime_type},
         )
-        return serializer.save(
-            id=document_id,
-            name=serializer.validated_data.get("name", uploaded_file.name),
-            original_name=uploaded_file.name,
-            mime_type=mime_type,
-            size=uploaded_file.size,
-            storage_key=storage_key,
-        )
+        try:
+            return serializer.save(
+                id=document_id,
+                name=serializer.validated_data.get("name", uploaded_file.name),
+                original_name=uploaded_file.name,
+                mime_type=mime_type,
+                size=uploaded_file.size,
+                storage_key=storage_key,
+            )
+        except DatabaseError:
+            try:
+                bucket.remove([storage_key])
+            except Exception:
+                logger.exception("Supabase Storage cleanup failed for document %s.", document_id)
+            raise
 
     def get_object(self):
         """
@@ -135,9 +150,9 @@ class DocumentViewSet(
 
     def handle_exception(self, error):
         """
-        Normaliza los errores de validación de la API de documentos.
+        Normaliza los errores de validación y Storage de la API de documentos.
 
-        @version 1.0
+        @version 1.1
         @param error Excepción capturada durante la solicitud.
         @author Agustin
         """
@@ -149,6 +164,15 @@ class DocumentViewSet(
                     "errors": error.detail,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(error, (StorageException, httpx.RequestError)):
+            logger.exception("[NEX-DOC-003] Supabase Storage upload failed.")
+            return Response(
+                {
+                    "code": "NEX-DOC-003",
+                    "message": "No fue posible almacenar el documento.",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
             )
         return super().handle_exception(error)
 

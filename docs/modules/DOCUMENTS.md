@@ -49,6 +49,10 @@ Requiere autenticación Bearer y recibe `multipart/form-data` con `company_id`,
 `file`, `category_id` opcional y `name` opcional. Cuando no se informa `name`,
 se usa el nombre original del archivo.
 
+El archivo debe contener datos, no puede superar 6 MiB y su tipo MIME declarado
+debe ser uno de: PDF, JPEG, PNG, DOCX o XLSX. Esta restricción usa el MIME
+informado por la carga; no verifica el contenido real del archivo.
+
 ### Edición de metadata
 
 `PATCH /api/documents/<id>/?company_id=<uuid>`
@@ -72,13 +76,13 @@ Responde `used`, `limit` y `available`, todos expresados en bytes.
 
 ## Errores
 
-`NEX-DOC-001` identifica datos de entrada inválidos y `NEX-DOC-002` un documento
-no encontrado o no disponible para la Company indicada. El catálogo completo está
-en [docs/ERROR_CODES.md](../ERROR_CODES.md).
+`NEX-DOC-001` identifica datos de entrada inválidos, `NEX-DOC-002` un documento
+no encontrado o no disponible para la Company indicada y `NEX-DOC-003` un fallo
+de Storage. El catálogo completo está en [docs/ERROR_CODES.md](../ERROR_CODES.md).
 
 ## Pendiente / fuera de alcance actual
 
-- Validación de tamaño, cuota y archivos vacíos.
+- Cuota por Company.
 - Download, eliminación física y signed URLs.
 - Consistencia entre DB y Storage si falla la persistencia posterior al upload.
 - Permisos owner/member y categorías completas.

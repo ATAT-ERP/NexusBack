@@ -3,11 +3,13 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import DatabaseError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+from storage3.exceptions import StorageApiError
 
 from apps.company.models import Company
 from apps.documents.models import Document
@@ -533,6 +535,11 @@ class DocumentCreateTests(APITestCase):
         self.company = Company.objects.create(name="Compañía de prueba")
         self.client.force_authenticate(user=self.user)
 
+    def assert_validation_error(self, response, field):
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "NEX-DOC-001")
+        self.assertIn(field, response.data["errors"])
+
     @patch("apps.documents.api.views.storage_client")
     def test_creates_a_document_and_uploads_its_file(self, storage_client):
         uploaded_file = SimpleUploadedFile(
@@ -571,7 +578,11 @@ class DocumentCreateTests(APITestCase):
 
     @patch("apps.documents.api.views.storage_client")
     def test_uses_the_provided_name(self, storage_client):
-        uploaded_file = SimpleUploadedFile("informe.pdf", b"contenido")
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf",
+            b"contenido",
+            content_type="application/pdf",
+        )
 
         response = self.client.post(
             self.url,
@@ -600,6 +611,150 @@ class DocumentCreateTests(APITestCase):
         self.assertIn("file", response.data["errors"])
         self.assertFalse(Document.objects.exists())
         storage_client.storage.from_.assert_not_called()
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_rejects_an_empty_file(self, storage_client):
+        uploaded_file = SimpleUploadedFile(
+            "vacio.pdf",
+            b"",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assert_validation_error(response, "file")
+        storage_client.storage.from_.assert_not_called()
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_accepts_a_file_of_exactly_six_megabytes(self, storage_client):
+        self.assertEqual(settings.DOCUMENT_MAX_SIZE_BYTES, 6 * 1024 * 1024)
+        uploaded_file = SimpleUploadedFile(
+            "limite.pdf",
+            b"a" * settings.DOCUMENT_MAX_SIZE_BYTES,
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        storage_client.storage.from_().upload.assert_called_once()
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_rejects_a_file_larger_than_six_megabytes(self, storage_client):
+        uploaded_file = SimpleUploadedFile(
+            "grande.pdf",
+            b"a" * (settings.DOCUMENT_MAX_SIZE_BYTES + 1),
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assert_validation_error(response, "file")
+        storage_client.storage.from_.assert_not_called()
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_accepts_the_allowed_mime_types(self, storage_client):
+        mime_types = (
+            "application/pdf",
+            "image/jpeg",
+            "image/png",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        for mime_type in mime_types:
+            with self.subTest(mime_type=mime_type):
+                uploaded_file = SimpleUploadedFile(
+                    "archivo",
+                    b"contenido",
+                    content_type=mime_type,
+                )
+
+                response = self.client.post(
+                    self.url,
+                    {"company_id": self.company.id, "file": uploaded_file},
+                    format="multipart",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(storage_client.storage.from_().upload.call_count, len(mime_types))
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_rejects_a_disallowed_mime_type(self, storage_client):
+        uploaded_file = SimpleUploadedFile(
+            "archivo.txt",
+            b"contenido",
+            content_type="text/plain",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assert_validation_error(response, "file")
+        storage_client.storage.from_.assert_not_called()
+
+    @patch("apps.documents.api.serializers.DocumentCreateSerializer.create", side_effect=DatabaseError)
+    @patch("apps.documents.api.views.storage_client")
+    def test_removes_the_uploaded_file_when_metadata_save_fails(
+        self,
+        storage_client,
+        create,
+    ):
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf",
+            b"contenido",
+            content_type="application/pdf",
+        )
+
+        with self.assertRaises(DatabaseError):
+            self.client.post(
+                self.url,
+                {"company_id": self.company.id, "file": uploaded_file},
+                format="multipart",
+            )
+
+        storage_key = storage_client.storage.from_().upload.call_args.args[0]
+        storage_client.storage.from_().remove.assert_called_once_with([storage_key])
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_does_not_save_metadata_when_upload_fails(self, storage_client):
+        storage_client.storage.from_().upload.side_effect = StorageApiError(
+            "Storage unavailable",
+            "InternalError",
+            500,
+        )
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf",
+            b"contenido",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["code"], "NEX-DOC-003")
+        self.assertFalse(Document.objects.exists())
+        storage_client.storage.from_().remove.assert_not_called()
 
 
 class DocumentCreateAuthenticationTests(APITestCase):

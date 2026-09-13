@@ -1,7 +1,17 @@
+from django.conf import settings
 from rest_framework import serializers
 
 from apps.company.models import Company
 from apps.documents.models import Document
+
+
+ALLOWED_DOCUMENT_MIME_TYPES = (
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
 
 
 class DocumentSerializer(serializers.ModelSerializer):
@@ -50,7 +60,7 @@ class DocumentCreateSerializer(serializers.ModelSerializer):
         source="company",
         queryset=Company.objects.all(),
     )
-    file = serializers.FileField(write_only=True)
+    file = serializers.FileField(write_only=True, allow_empty_file=True)
 
     class Meta:
         model = Document
@@ -85,6 +95,21 @@ class DocumentCreateSerializer(serializers.ModelSerializer):
         """
         validated_data.pop("file")
         return super().create(validated_data)
+
+    def validate_file(self, uploaded_file):
+        """
+        Valida el tamaño y tipo MIME admitidos para un archivo de Documents.
+
+        @version 1.0
+        @author Agustin
+        """
+        if uploaded_file.size == 0:
+            raise serializers.ValidationError("El archivo no puede estar vacío.")
+        if uploaded_file.size > settings.DOCUMENT_MAX_SIZE_BYTES:
+            raise serializers.ValidationError("El archivo supera el tamaño máximo permitido.")
+        if uploaded_file.content_type not in ALLOWED_DOCUMENT_MIME_TYPES:
+            raise serializers.ValidationError("El tipo de archivo no está permitido.")
+        return uploaded_file
 
 
 class CompanyQuery(serializers.Serializer):
