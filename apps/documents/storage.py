@@ -1,19 +1,5 @@
-from abc import ABC, abstractmethod
-from typing import BinaryIO
+from django.conf import settings
+from supabase import create_client
 
 
-class FileStorage(ABC):
-    """Contrato para el proveedor que persiste los archivos del módulo."""
-
-    @abstractmethod
-    def save(self, storage_key: str, content: BinaryIO, mime_type: str) -> None:
-        """Guarda el contenido en la clave interna indicada."""
-
-    @abstractmethod
-    def open(self, storage_key: str) -> BinaryIO:
-        """Abre el contenido asociado a una clave interna."""
-
-    @abstractmethod
-    def delete(self, storage_key: str) -> None:
-        """Elimina el contenido asociado a una clave interna."""
-
+storage_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SECRET_KEY)

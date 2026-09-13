@@ -2,12 +2,9 @@
 
 ## Finalidad
 
-`documents` gestiona la metadata de archivos asociados a una Company. No es una
-nube tipo Drive: el almacenamiento físico todavía no está conectado.
-
-El módulo está implementado parcialmente. `company_id` sigue siendo un UUID sin
-clave foránea real; la integración con Supabase Storage y los permisos de
-owner/member permanecen pendientes.
+`documents` gestiona archivos asociados a una Company. La metadata se persiste
+en Django y el contenido físico se guarda en el bucket privado `documents` de
+Supabase Storage.
 
 ## Modelo actual
 
@@ -16,7 +13,7 @@ La tabla `documents` contiene los siguientes campos:
 | Campo | Descripción |
 | --- | --- |
 | `id` | UUID y clave primaria. |
-| `company_id` | UUID de la Company, sin foreign key por ahora. |
+| `company_id` | Clave foránea a la Company asociada. |
 | `name` | Nombre visible del documento. |
 | `original_name` | Nombre original del archivo. |
 | `storage_key` | Identificador interno de almacenamiento. |
@@ -30,9 +27,9 @@ visible puede cambiar sin modificar esa clave.
 
 ## Storage
 
-Existe la abstracción `FileStorage`, que hoy sólo define el contrato de
-almacenamiento. No hay una implementación concreta ni integración con Supabase
-Storage.
+`POST /api/documents/` sube el archivo al bucket privado `documents` antes de
+persistir su metadata. La clave interna sigue la forma
+`<company_uuid>/<document_uuid>` y no se expone públicamente.
 
 ## Endpoints actuales
 
@@ -43,6 +40,14 @@ Storage.
 Acepta opcionalmente `q` y `category_id`. Busca de forma parcial y sin distinguir
 mayúsculas/minúsculas en `name` y `original_name`, permite filtrar por categoría
 y ordena por `created_at` descendente.
+
+### Creación
+
+`POST /api/documents/`
+
+Requiere autenticación Bearer y recibe `multipart/form-data` con `company_id`,
+`file`, `category_id` opcional y `name` opcional. Cuando no se informa `name`,
+se usa el nombre original del archivo.
 
 ### Edición de metadata
 
@@ -57,18 +62,10 @@ físico; el resto de los campos permanece protegido.
 
 Responde `used`, `limit` y `available`, todos expresados en bytes.
 
-## Límites MVP
-
-- Máximo previsto por archivo: 6 MiB.
-- Máximo por Company: 12 MiB.
-- Límite interno seguro: 40 MiB.
-
-El máximo de 6 MiB todavía no se valida porque upload no existe. El límite de
-12 MiB todavía no bloquea operaciones y el límite interno de 40 MiB no se expone
-al consumidor. Los tres se utilizarán durante la implementación futura de upload.
-
 ## Variables de entorno
 
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
 - `DOCUMENT_MAX_SIZE_MB`
 - `DOCUMENT_COMPANY_LIMIT_MB`
 - `DOCUMENT_STORAGE_SAFE_LIMIT_MB`
@@ -81,8 +78,7 @@ en [docs/ERROR_CODES.md](../ERROR_CODES.md).
 
 ## Pendiente / fuera de alcance actual
 
-- Supabase Storage y bucket privado.
-- Upload, validación efectiva de 6 MiB y cuota por Company.
-- Límite seguro global, download y eliminación definitiva.
-- Consistencia entre base de datos y Storage.
-- Permisos, integración real con Company y categorías completas.
+- Validación de tamaño, cuota y archivos vacíos.
+- Download, eliminación física y signed URLs.
+- Consistencia entre DB y Storage si falla la persistencia posterior al upload.
+- Permisos owner/member y categorías completas.

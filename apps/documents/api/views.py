@@ -7,30 +7,107 @@ from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.documents.api.serializers import (
     CompanyQuery,
+    DocumentCreateSerializer,
     DocumentSerializer,
     ListQuerySerializer,
 )
 from apps.documents.models import Document
+from apps.documents.storage import storage_client
+from apps.users.authentication import SupabaseBearerAuthentication
 
 
 class DocumentViewSet(
+    mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     """
-    Lista y actualiza la metadata de documentos restringida a una Company.
+    Crea, lista y actualiza la metadata de documentos restringida a una Company.
 
-    @version 1.0
+    @version 2.0
     @author Agustin
     """
 
     serializer_class = DocumentSerializer
-    http_method_names = ["get", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_authenticators(self):
+        """
+        Exige un Bearer de Supabase para crear documentos.
+
+        @version 1.0
+        @author Agustin
+        """
+        if self.request.method == "POST":
+            return [SupabaseBearerAuthentication()]
+        return []
+
+    def get_permissions(self):
+        """
+        Exige un usuario autenticado para crear documentos.
+
+        @version 1.0
+        @author Agustin
+        """
+        if self.request.method == "POST":
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def get_serializer_class(self):
+        """
+        Usa el serializer de entrada multipart únicamente durante la creación.
+
+        @version 1.0
+        @author Agustin
+        """
+        if self.request.method == "POST":
+            return DocumentCreateSerializer
+        return DocumentSerializer
+
+    def create(self, request, *args, **kwargs):
+        """
+        Crea un documento y responde con su metadata pública.
+
+        @version 1.0
+        @author Agustin
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        document = self.perform_create(serializer)
+        return Response(DocumentSerializer(document).data, status=status.HTTP_201_CREATED)
+
+    def perform_create(self, serializer):
+        """
+        Sube el archivo y persiste la metadata con la clave física definitiva.
+
+        @version 1.0
+        @author Agustin
+        """
+        uploaded_file = serializer.validated_data["file"]
+        company = serializer.validated_data["company"]
+        document_id = uuid.uuid4()
+        storage_key = f"{company.id}/{document_id}"
+        mime_type = uploaded_file.content_type or "application/octet-stream"
+
+        storage_client.storage.from_("documents").upload(
+            storage_key,
+            uploaded_file.read(),
+            {"content-type": mime_type},
+        )
+        return serializer.save(
+            id=document_id,
+            name=serializer.validated_data.get("name", uploaded_file.name),
+            original_name=uploaded_file.name,
+            mime_type=mime_type,
+            size=uploaded_file.size,
+            storage_key=storage_key,
+        )
 
     def get_object(self):
         """

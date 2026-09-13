@@ -1,13 +1,17 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
+from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.company.models import Company
 from apps.documents.models import Document
+from apps.users.models import User
 
 
 class DocumentTests(APITestCase):
@@ -519,3 +523,99 @@ class DocumentTests(APITestCase):
 
         self.assertNotIn("safe_limit", response.data)
         self.assertNotIn("DOCUMENT_STORAGE_SAFE_LIMIT_BYTES", response.data)
+
+
+class DocumentCreateTests(APITestCase):
+    url = "/api/documents/"
+
+    def setUp(self):
+        self.user = User.objects.create(id=uuid.uuid4(), email="creator@example.com")
+        self.company = Company.objects.create(name="Compañía de prueba")
+        self.client.force_authenticate(user=self.user)
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_creates_a_document_and_uploads_its_file(self, storage_client):
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf",
+            b"contenido del informe",
+            content_type="application/pdf",
+        )
+        category_id = uuid.uuid4()
+
+        response = self.client.post(
+            self.url,
+            {
+                "company_id": self.company.id,
+                "file": uploaded_file,
+                "category_id": category_id,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        document = Document.objects.get(pk=response.data["id"])
+        self.assertEqual(document.company, self.company)
+        self.assertEqual(document.name, "informe.pdf")
+        self.assertEqual(document.original_name, "informe.pdf")
+        self.assertEqual(document.mime_type, "application/pdf")
+        self.assertEqual(document.size, len(b"contenido del informe"))
+        self.assertEqual(document.category_id, category_id)
+        self.assertEqual(document.storage_key, f"{self.company.id}/{document.id}")
+        self.assertNotIn("storage_key", response.data)
+        storage_client.storage.from_.assert_called_once_with("documents")
+        storage_client.storage.from_().upload.assert_called_once_with(
+            document.storage_key,
+            b"contenido del informe",
+            {"content-type": "application/pdf"},
+        )
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_uses_the_provided_name(self, storage_client):
+        uploaded_file = SimpleUploadedFile("informe.pdf", b"contenido")
+
+        response = self.client.post(
+            self.url,
+            {
+                "company_id": self.company.id,
+                "file": uploaded_file,
+                "name": "Informe de agosto",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Informe de agosto")
+        storage_client.storage.from_().upload.assert_called_once()
+
+    @patch("apps.documents.api.views.storage_client")
+    def test_requires_a_file(self, storage_client):
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "NEX-DOC-001")
+        self.assertIn("file", response.data["errors"])
+        self.assertFalse(Document.objects.exists())
+        storage_client.storage.from_.assert_not_called()
+
+
+class DocumentCreateAuthenticationTests(APITestCase):
+    url = "/api/documents/"
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Compañía de prueba")
+
+    def test_requires_authentication(self):
+        uploaded_file = SimpleUploadedFile("informe.pdf", b"contenido")
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(Document.objects.exists())

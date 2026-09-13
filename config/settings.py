@@ -101,6 +101,7 @@ for variable_name in REQUIRED_POSTGRES_ENV_VARS:
 REQUIRED_SUPABASE_ENV_VARS = (
     "SUPABASE_URL",
     "SUPABASE_KEY",
+    "SUPABASE_SECRET_KEY",
 )
 
 for variable_name in REQUIRED_SUPABASE_ENV_VARS:
@@ -109,6 +110,7 @@ for variable_name in REQUIRED_SUPABASE_ENV_VARS:
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+SUPABASE_SECRET_KEY = os.environ["SUPABASE_SECRET_KEY"]
 
 DATABASES = {
     "default": {
