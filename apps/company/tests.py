@@ -6,6 +6,7 @@ Tests para el alta, las validaciones y la búsqueda de compañías.
 """
 
 import uuid
+from unittest.mock import patch
 
 from django.db import IntegrityError, transaction
 from django.test import TestCase
@@ -97,6 +98,10 @@ class CompanyMemberModelTests(TestCase):
 
 class CompanyCreateTests(APITestCase):
     url = "/api/companies/"
+
+    def setUp(self):
+        self.user = User.objects.create(id=uuid.uuid4(), email="creator@example.com")
+        self.client.force_authenticate(user=self.user)
 
     def test_create_individual_without_tax_info(self):
         response = self.client.post(
@@ -238,6 +243,56 @@ class CompanyCreateTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("tax_id", response.data["errors"])
+
+
+class CompanyOwnerCreationTests(APITestCase):
+    url = "/api/companies/"
+
+    def setUp(self):
+        self.user = User.objects.create(id=uuid.uuid4(), email="owner@example.com")
+
+    def test_authenticated_post_creates_an_owner_membership(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {"type": "individual", "name": "Compañía con owner"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        company = Company.objects.get(pk=response.data["id"])
+        membership = CompanyMember.objects.get(company=company)
+        self.assertEqual(CompanyMember.objects.filter(company=company).count(), 1)
+        self.assertEqual(membership.user, self.user)
+        self.assertEqual(membership.company, company)
+        self.assertEqual(membership.role.code, "owner")
+
+    def test_unauthenticated_post_does_not_create_a_company(self):
+        response = self.client.post(
+            self.url,
+            {"type": "individual", "name": "Sin autenticación"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(Company.objects.filter(name="Sin autenticación").exists())
+
+    def test_membership_failure_rolls_back_the_company(self):
+        self.client.force_authenticate(user=self.user)
+
+        with patch(
+            "apps.company.api.views.CompanyMember.objects.create",
+            side_effect=IntegrityError,
+        ):
+            with self.assertRaises(IntegrityError):
+                self.client.post(
+                    self.url,
+                    {"type": "individual", "name": "Compañía revertida"},
+                    format="json",
+                )
+
+        self.assertFalse(Company.objects.filter(name="Compañía revertida").exists())
 
 
 class CompanyUpdateTests(APITestCase):

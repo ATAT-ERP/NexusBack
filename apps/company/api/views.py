@@ -1,11 +1,14 @@
 import re
 
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import generics, serializers, status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.company.api.serializers import CompanySerializer
-from apps.company.models import Company, normalize_tax_id
+from apps.company.models import Company, CompanyMember, CompanyRole, normalize_tax_id
+from apps.users.authentication import SupabaseBearerAuthentication
 
 class CompanyListView(generics.ListCreateAPIView):
     """
@@ -17,6 +20,32 @@ class CompanyListView(generics.ListCreateAPIView):
     """
 
     serializer_class = CompanySerializer
+
+    def get_authenticators(self):
+        if self.request.method == "POST":
+            return [SupabaseBearerAuthentication()]
+        return []
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def perform_create(self, serializer):
+        """
+        Crea una compañía y asigna al usuario creador como owner.
+
+        @version 1.0
+        @author Agustin
+        """
+        with transaction.atomic():
+            company = serializer.save()
+            owner_role = CompanyRole.objects.get(code="owner")
+            CompanyMember.objects.create(
+                user=self.request.user,
+                company=company,
+                role=owner_role,
+            )
 
     def get_queryset(self):
         """

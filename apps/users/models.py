@@ -20,3 +20,7 @@ class User(models.Model):
 
     class Meta:
         db_table = "users"
+
+    @property
+    def is_authenticated(self):
+        return True
