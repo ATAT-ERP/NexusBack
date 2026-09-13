@@ -27,6 +27,7 @@ from apps.users.authentication import SupabaseBearerAuthentication
 
 
 logger = logging.getLogger(__name__)
+SIGNED_URL_EXPIRATION_SECONDS = 60
 
 
 class DocumentViewSet(
@@ -47,23 +48,23 @@ class DocumentViewSet(
 
     def get_authenticators(self):
         """
-        Exige un Bearer de Supabase para crear o listar documentos.
+        Exige un Bearer de Supabase para crear, listar o descargar documentos.
 
-        @version 1.1
+        @version 1.2
         @author Agustin
         """
-        if self.action in ("create", "list"):
+        if self.action in ("create", "list", "download"):
             return [SupabaseBearerAuthentication()]
         return []
 
     def get_permissions(self):
         """
-        Exige un usuario autenticado para crear o listar documentos.
+        Exige un usuario autenticado para crear, listar o descargar documentos.
 
-        @version 1.1
+        @version 1.2
         @author Agustin
         """
-        if self.action in ("create", "list"):
+        if self.action in ("create", "list", "download"):
             return [IsAuthenticated()]
         return super().get_permissions()
 
@@ -127,20 +128,22 @@ class DocumentViewSet(
 
     def get_object(self):
         """
-        Obtiene un documento dentro de la Company indicada sin revelar otros registros.
+        Obtiene un documento; para download no confía en una Company enviada por cliente.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
-        query_serializer = CompanyQuery(data=self.request.query_params)
-        query_serializer.is_valid(raise_exception=True)
-
         try:
             document_id = uuid.UUID(self.kwargs["pk"])
         except (TypeError, ValueError):
             self._not_found()
 
         try:
+            if self.action == "download":
+                return get_object_or_404(Document, id=document_id)
+
+            query_serializer = CompanyQuery(data=self.request.query_params)
+            query_serializer.is_valid(raise_exception=True)
             return get_object_or_404(
                 Document,
                 id=document_id,
@@ -167,6 +170,15 @@ class DocumentViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if isinstance(error, (StorageException, httpx.RequestError)):
+            if self.action == "download":
+                logger.exception("[NEX-DOC-004] Supabase Storage signed URL creation failed.")
+                return Response(
+                    {
+                        "code": "NEX-DOC-004",
+                        "message": "No fue posible preparar la descarga del documento.",
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             logger.exception("[NEX-DOC-003] Supabase Storage upload failed.")
             return Response(
                 {
@@ -176,6 +188,28 @@ class DocumentViewSet(
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return super().handle_exception(error)
+
+    @action(detail=True, methods=["get"], url_path="download")
+    def download(self, request, *args, **kwargs):
+        """
+        Genera una URL temporal para descargar un documento de la Company autorizada.
+
+        @version 1.0
+        @author Agustin
+        """
+        document = self.get_object()
+        if not CompanyMember.objects.filter(
+            user=request.user,
+            company_id=document.company_id,
+        ).exists():
+            raise PermissionDenied()
+
+        signed_url = storage_client.storage.from_("documents").create_signed_url(
+            document.storage_key,
+            SIGNED_URL_EXPIRATION_SECONDS,
+            {"download": document.original_name},
+        )["signedURL"]
+        return Response({"url": signed_url})
 
     @action(detail=False, methods=["get"])
     def usage(self, request):

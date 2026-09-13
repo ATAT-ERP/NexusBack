@@ -60,6 +60,14 @@ informado por la carga; no verifica el contenido real del archivo.
 Sólo permite editar `name` y `category_id`. Cambiar `name` no renombra el archivo
 físico; el resto de los campos permanece protegido.
 
+### Descarga
+
+`GET /api/documents/<id>/download/`
+
+Requiere autenticación Bearer y membership en la Company real del documento. Devuelve
+`{"url": "<signed-url>"}` con una URL temporal de 60 segundos para descargar desde
+el bucket privado `documents`; no expone `storage_key`.
+
 ### Uso
 
 `GET /api/documents/usage/?company_id=<uuid>`
@@ -83,6 +91,6 @@ de Storage. El catálogo completo está en [docs/ERROR_CODES.md](../ERROR_CODES.
 ## Pendiente / fuera de alcance actual
 
 - Cuota por Company.
-- Download, eliminación física y signed URLs.
+- Eliminación física.
 - Consistencia entre DB y Storage si falla la persistencia posterior al upload.
 - Permisos owner/member y categorías completas.
