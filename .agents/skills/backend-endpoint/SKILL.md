@@ -5,6 +5,8 @@ description: Crear, modificar, corregir o revisar endpoints HTTP de NexusBack, i
 
 # Endpoints de NexusBack
 
+Aplicá también `.agents/skills/backend-code/SKILL.md` al crear o modificar la lógica del endpoint.
+
 1. Confirmá el alcance exacto y localizá el módulo y endpoint involucrados.
 2. Revisá rutas, handlers, serializers, modelos y las capas que el módulo realmente use; buscá implementaciones equivalentes antes de proponer un patrón.
 3. Determiná el contrato vigente de request y response, incluidos autenticación, permisos, códigos de estado, errores y campos opcionales. Si se modifica algo existente, identificá antes sus consumidores relevantes.

@@ -24,5 +24,6 @@
 
 - Leé los archivos relacionados, buscá implementaciones equivalentes e identificá dependencias y consumidores relevantes.
 - Mantené las convenciones del módulo afectado.
+- Para crear o modificar funciones, métodos o lógica dentro de código existente, incluidos correcciones, refactors y extensiones, usá `.agents/skills/backend-code/SKILL.md`.
 - Para crear o estructurar un módulo nuevo del backend, usá `.agents/skills/backend-module/SKILL.md`.
 - Para crear, modificar, corregir o revisar un endpoint HTTP, usá `.agents/skills/backend-endpoint/SKILL.md`.
