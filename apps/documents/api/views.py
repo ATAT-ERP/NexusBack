@@ -45,17 +45,7 @@ class DocumentViewSet(
 
     serializer_class = DocumentSerializer
     http_method_names = ["get", "post", "patch", "head", "options"]
-
-    def get_authenticators(self):
-        """
-        Exige un Bearer de Supabase para crear, listar o descargar documentos.
-
-        @version 1.2
-        @author Agustin
-        """
-        if self.action in ("create", "list", "download"):
-            return [SupabaseBearerAuthentication()]
-        return []
+    authentication_classes = (SupabaseBearerAuthentication,)
 
     def get_permissions(self):
         """
