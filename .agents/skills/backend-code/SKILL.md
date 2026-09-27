@@ -62,6 +62,7 @@ Antes de cerrar:
 2. Simplificá helpers, ramas, consultas, excepciones o abstracciones que no aporten comportamiento claro.
 3. Eliminá imports, variables, código muerto, bloques comentados y redundancias generadas por el cambio.
 4. Verificá docstrings y versiones de todas las funciones o métodos creados o cuyo comportamiento cambió.
-5. Confirmá que sólo modificaste los archivos necesarios y ejecutá las validaciones o tests razonables para el cambio.
+5. Revisá los tests existentes relacionados con el código modificado y ejecutá sólo los pertinentes y razonables para el cambio; no agregues tests para comportamiento propio del framework que el proyecto no personaliza. En el informe final, indicá cuáles ejecutaste o si no había tests aplicables o no fue posible ejecutarlos.
+6. Inspeccioná el `git diff` final y confirmá que cada cambio pertenece al alcance solicitado y que sólo modificaste los archivos necesarios, sin cambios accidentales, redundancias ni modificaciones laterales.
 
 Si detectás deuda técnica ajena al alcance, informala al finalizar sin corregirla automáticamente.
