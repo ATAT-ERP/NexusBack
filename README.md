@@ -76,7 +76,7 @@ docker compose exec nexusback python manage.py check
 
 - [Arquitectura](docs/ARCHITECTURE.md)
 - [Módulo users](docs/modules/USERS.md)
-- [Módulo documents](docs/modules/DOCUMENTS.md)
+- [Módulo cloud](docs/modules/CLOUD.md)
 - [Códigos de error](docs/ERROR_CODES.md)
 
 ## Instrucciones para agentes de desarrollo

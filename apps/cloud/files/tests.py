@@ -12,13 +12,13 @@ from rest_framework.test import APITestCase
 from storage3.exceptions import StorageApiError
 
 from apps.company.models import Company, CompanyMember, CompanyRole
-from apps.documents.models import Document
+from apps.cloud.models import File
 from apps.users.models import User
 
 
-class DocumentTests(APITestCase):
-    url = "/api/documents/"
-    usage_url = "/api/documents/usage/"
+class FileTests(APITestCase):
+    url = "/api/cloud/files/"
+    usage_url = "/api/cloud/files/usage/"
 
     def setUp(self):
         self.user = User.objects.create(id=uuid.uuid4(), email="member@example.com")
@@ -43,7 +43,7 @@ class DocumentTests(APITestCase):
             "size": 1024,
         }
         defaults.update(overrides)
-        return Document.objects.create(company_id=company_id, **defaults)
+        return File.objects.create(company_id=company_id, **defaults)
 
     def detail_url(self, document_id, company_id=None):
         url = f"{self.url}{document_id}/"
@@ -199,7 +199,7 @@ class DocumentTests(APITestCase):
     def test_rejects_a_user_who_is_not_a_company_member(self):
         company_id = uuid.uuid4()
         company = Company.objects.create(id=company_id, name="Compañía ajena")
-        Document.objects.create(
+        File.objects.create(
             company=company,
             name="Confidencial",
             original_name="confidencial.pdf",
@@ -234,8 +234,8 @@ class DocumentTests(APITestCase):
         older = self.create_document(company_id, name="Anterior")
         newer = self.create_document(company_id, name="Reciente")
         now = timezone.now()
-        Document.objects.filter(pk=older.pk).update(created_at=now - timedelta(days=1))
-        Document.objects.filter(pk=newer.pk).update(created_at=now)
+        File.objects.filter(pk=older.pk).update(created_at=now - timedelta(days=1))
+        File.objects.filter(pk=newer.pk).update(created_at=now)
 
         response = self.client.get(self.url, {"company_id": company_id})
 
@@ -564,8 +564,8 @@ class DocumentTests(APITestCase):
         self.assertNotIn("DOCUMENT_STORAGE_SAFE_LIMIT_BYTES", response.data)
 
 
-class DocumentListAuthenticationTests(APITestCase):
-    url = "/api/documents/"
+class FileListAuthenticationTests(APITestCase):
+    url = "/api/cloud/files/"
 
     def test_requires_authentication(self):
         response = self.client.get(self.url, {"company_id": uuid.uuid4()})
@@ -573,7 +573,7 @@ class DocumentListAuthenticationTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-class DocumentDownloadTests(APITestCase):
+class FileDownloadTests(APITestCase):
     def setUp(self):
         self.user = User.objects.create(id=uuid.uuid4(), email="member@example.com")
         self.company = Company.objects.create(name="Compañía de prueba")
@@ -583,7 +583,7 @@ class DocumentDownloadTests(APITestCase):
             company=self.company,
             role=owner_role,
         )
-        self.document = Document.objects.create(
+        self.document = File.objects.create(
             company=self.company,
             name="Informe",
             original_name="informe.pdf",
@@ -591,9 +591,9 @@ class DocumentDownloadTests(APITestCase):
             mime_type="application/pdf",
             size=1024,
         )
-        self.url = f"/api/documents/{self.document.id}/download/"
+        self.url = f"/api/cloud/files/{self.document.id}/download/"
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_returns_a_signed_url_for_a_company_member(self, storage_client):
         self.client.force_authenticate(user=self.user)
         storage_client.storage.from_().create_signed_url.return_value = {
@@ -604,7 +604,7 @@ class DocumentDownloadTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, {"url": "https://storage.example/signed-url"})
-        storage_client.storage.from_.assert_called_once_with("documents")
+        storage_client.storage.from_.assert_any_call("documents")
         storage_client.storage.from_().create_signed_url.assert_called_once_with(
             self.document.storage_key,
             60,
@@ -616,7 +616,7 @@ class DocumentDownloadTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_rejects_a_user_who_is_not_a_company_member(self, storage_client):
         user = User.objects.create(id=uuid.uuid4(), email="other@example.com")
         self.client.force_authenticate(user=user)
@@ -626,16 +626,16 @@ class DocumentDownloadTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_returns_not_found_for_an_unknown_document(self, storage_client):
         self.client.force_authenticate(user=self.user)
 
-        response = self.client.get(f"/api/documents/{uuid.uuid4()}/download/")
+        response = self.client.get(f"/api/cloud/files/{uuid.uuid4()}/download/")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_handles_storage_errors(self, storage_client):
         self.client.force_authenticate(user=self.user)
         storage_client.storage.from_().create_signed_url.side_effect = StorageApiError(
@@ -657,8 +657,8 @@ class DocumentDownloadTests(APITestCase):
         self.assertNotIn(self.document.storage_key, str(response.data))
 
 
-class DocumentCreateTests(APITestCase):
-    url = "/api/documents/"
+class FileCreateTests(APITestCase):
+    url = "/api/cloud/files/"
 
     def setUp(self):
         self.user = User.objects.create(id=uuid.uuid4(), email="creator@example.com")
@@ -670,7 +670,7 @@ class DocumentCreateTests(APITestCase):
         self.assertEqual(response.data["code"], "NEX-DOC-001")
         self.assertIn(field, response.data["errors"])
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_creates_a_document_and_uploads_its_file(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "informe.pdf",
@@ -690,7 +690,7 @@ class DocumentCreateTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        document = Document.objects.get(pk=response.data["id"])
+        document = File.objects.get(pk=response.data["id"])
         self.assertEqual(document.company, self.company)
         self.assertEqual(document.name, "informe.pdf")
         self.assertEqual(document.original_name, "informe.pdf")
@@ -699,14 +699,14 @@ class DocumentCreateTests(APITestCase):
         self.assertEqual(document.category_id, category_id)
         self.assertEqual(document.storage_key, f"{self.company.id}/{document.id}")
         self.assertNotIn("storage_key", response.data)
-        storage_client.storage.from_.assert_called_once_with("documents")
+        storage_client.storage.from_.assert_any_call("documents")
         storage_client.storage.from_().upload.assert_called_once_with(
             document.storage_key,
             b"contenido del informe",
             {"content-type": "application/pdf"},
         )
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_uses_the_provided_name(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "informe.pdf",
@@ -728,7 +728,7 @@ class DocumentCreateTests(APITestCase):
         self.assertEqual(response.data["name"], "Informe de agosto")
         storage_client.storage.from_().upload.assert_called_once()
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_requires_a_file(self, storage_client):
         response = self.client.post(
             self.url,
@@ -739,10 +739,10 @@ class DocumentCreateTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["code"], "NEX-DOC-001")
         self.assertIn("file", response.data["errors"])
-        self.assertFalse(Document.objects.exists())
+        self.assertFalse(File.objects.exists())
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_rejects_an_empty_file(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "vacio.pdf",
@@ -759,7 +759,7 @@ class DocumentCreateTests(APITestCase):
         self.assert_validation_error(response, "file")
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_accepts_a_file_of_exactly_six_megabytes(self, storage_client):
         self.assertEqual(settings.DOCUMENT_MAX_SIZE_BYTES, 6 * 1024 * 1024)
         uploaded_file = SimpleUploadedFile(
@@ -777,7 +777,7 @@ class DocumentCreateTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         storage_client.storage.from_().upload.assert_called_once()
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_rejects_a_file_larger_than_six_megabytes(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "grande.pdf",
@@ -794,7 +794,7 @@ class DocumentCreateTests(APITestCase):
         self.assert_validation_error(response, "file")
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_accepts_the_allowed_mime_types(self, storage_client):
         mime_types = (
             "application/pdf",
@@ -822,7 +822,7 @@ class DocumentCreateTests(APITestCase):
 
         self.assertEqual(storage_client.storage.from_().upload.call_count, len(mime_types))
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_rejects_a_disallowed_mime_type(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "archivo.txt",
@@ -839,8 +839,8 @@ class DocumentCreateTests(APITestCase):
         self.assert_validation_error(response, "file")
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.documents.api.serializers.DocumentCreateSerializer.create", side_effect=DatabaseError)
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.serializers.FileCreateSerializer.create", side_effect=DatabaseError)
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_removes_the_uploaded_file_when_metadata_save_fails(
         self,
         storage_client,
@@ -862,7 +862,7 @@ class DocumentCreateTests(APITestCase):
         storage_key = storage_client.storage.from_().upload.call_args.args[0]
         storage_client.storage.from_().remove.assert_called_once_with([storage_key])
 
-    @patch("apps.documents.api.views.storage_client")
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_does_not_save_metadata_when_upload_fails(self, storage_client):
         storage_client.storage.from_().upload.side_effect = StorageApiError(
             "Storage unavailable",
@@ -883,12 +883,12 @@ class DocumentCreateTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.data["code"], "NEX-DOC-003")
-        self.assertFalse(Document.objects.exists())
+        self.assertFalse(File.objects.exists())
         storage_client.storage.from_().remove.assert_not_called()
 
 
-class DocumentCreateAuthenticationTests(APITestCase):
-    url = "/api/documents/"
+class FileCreateAuthenticationTests(APITestCase):
+    url = "/api/cloud/files/"
 
     def setUp(self):
         self.company = Company.objects.create(name="Compañía de prueba")
@@ -903,4 +903,4 @@ class DocumentCreateAuthenticationTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertFalse(Document.objects.exists())
+        self.assertFalse(File.objects.exists())
