@@ -74,6 +74,18 @@ el bucket privado `documents`; no expone `storage_key`.
 
 Responde `used`, `limit` y `available`, todos expresados en bytes.
 
+## Lectura de archivos XLSX
+
+Los archivos con extensión `.xlsx` pueden consultarse después de validar la
+membresía del usuario en la Company propietaria:
+
+- `GET /api/cloud/files/<id>/sheets/` devuelve `{"sheets": ["Clientes"]}`.
+- `GET /api/cloud/files/<id>/sheets/<hoja>/` devuelve el nombre y las filas de
+  la hoja como valores JSON.
+
+Las fechas se serializan con el formato ISO 8601 de la API. Las fórmulas no se
+calculan; se devuelve el valor guardado en el libro, o `null` si no tiene uno.
+
 ## Variables de entorno
 
 - `SUPABASE_URL`

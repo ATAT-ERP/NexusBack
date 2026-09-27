@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from storage3.exceptions import StorageException
 
 from apps.company.models import CompanyMember
+from apps.cloud.excel import reader as excel_reader
 from apps.cloud.files.api.serializers import (
     CompanyQuery,
     FileCreateSerializer,
@@ -54,7 +55,7 @@ class FileViewSet(
         @version 1.2
         @author Agustin
         """
-        if self.action in ("create", "list", "download"):
+        if self.action in ("create", "list", "download", "sheets", "sheet"):
             return [IsAuthenticated()]
         return super().get_permissions()
 
@@ -129,7 +130,7 @@ class FileViewSet(
             self._not_found()
 
         try:
-            if self.action == "download":
+            if self.action in ("download", "sheets", "sheet"):
                 return get_object_or_404(File, id=file_id)
 
             query_serializer = CompanyQuery(data=self.request.query_params)
@@ -159,6 +160,19 @@ class FileViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(error, excel_reader.InvalidWorkbook):
+            return Response(
+                {
+                    "code": "NEX-DOC-006",
+                    "message": "El archivo XLSX no es válido.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(error, excel_reader.SheetNotFound):
+            return Response(
+                {"code": "NEX-DOC-007", "message": "Hoja no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if isinstance(error, (StorageException, httpx.RequestError)):
             if self.action == "download":
                 logger.exception("[NEX-DOC-004] Supabase Storage signed URL creation failed.")
@@ -166,6 +180,15 @@ class FileViewSet(
                     {
                         "code": "NEX-DOC-004",
                         "message": "No fue posible preparar la descarga del documento.",
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            if self.action in ("sheets", "sheet"):
+                logger.exception("[NEX-DOC-005] Supabase Storage file download failed.")
+                return Response(
+                    {
+                        "code": "NEX-DOC-005",
+                        "message": "No fue posible leer el archivo almacenado.",
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
@@ -184,15 +207,11 @@ class FileViewSet(
         """
         Genera una URL temporal para descargar un archivo de la Company autorizada.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         file = self.get_object()
-        if not CompanyMember.objects.filter(
-            user=request.user,
-            company_id=file.company_id,
-        ).exists():
-            raise PermissionDenied()
+        self._check_membership(file, request.user)
 
         signed_url = storage_client.storage.from_("documents").create_signed_url(
             file.storage_key,
@@ -200,6 +219,52 @@ class FileViewSet(
             {"download": file.original_name},
         )["signedURL"]
         return Response({"url": signed_url})
+
+    @action(detail=True, methods=["get"], url_path="sheets")
+    def sheets(self, request, *args, **kwargs):
+        """Devuelve las hojas disponibles en un archivo XLSX autorizado.
+
+        @version 1.0
+        @author Agustin
+        """
+        content = self._excel_content()
+        return Response({"sheets": excel_reader.sheets(content)})
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"sheets/(?P<sheet>[^/]+)",
+    )
+    def sheet(self, request, sheet, *args, **kwargs):
+        """Devuelve los valores de una hoja de un archivo XLSX autorizado.
+
+        @version 1.0
+        @author Agustin
+        """
+        content = self._excel_content()
+        return Response({"name": sheet, "rows": excel_reader.read(content, sheet)})
+
+    def _excel_content(self):
+        """Valida el acceso y devuelve el contenido almacenado de un XLSX.
+
+        @version 1.0
+        @author Agustin
+        """
+        file = self.get_object()
+        self._check_membership(file, self.request.user)
+        if not file.original_name.lower().endswith(".xlsx"):
+            raise ValidationError("El archivo debe tener extensión .xlsx.")
+        return storage_client.storage.from_("documents").download(file.storage_key)
+
+    @staticmethod
+    def _check_membership(file, user):
+        """Exige membresía en la Company dueña del archivo.
+
+        @version 1.0
+        @author Agustin
+        """
+        if not CompanyMember.objects.filter(user=user, company_id=file.company_id).exists():
+            raise PermissionDenied()
 
     @action(detail=False, methods=["get"])
     def usage(self, request):
