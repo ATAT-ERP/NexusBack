@@ -80,7 +80,7 @@ class FiscalProfileAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["company"], str(self.company.id))
+        self.assertEqual(str(response.data["company"]), str(self.company.id))
         self.assertEqual(response.data["vat_condition"], VATCondition.REGISTERED_RESPONSIBLE)
 
         response = self.client.get(self.url.format(self.company.id))
