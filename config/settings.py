@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "apps.users.apps.UsersConfig",
     "apps.company.apps.CompanyConfig",
     "apps.billing.apps.BillingConfig",
+    "apps.accounting.apps.AccountingConfig",
 ]
 
 REST_FRAMEWORK = {
