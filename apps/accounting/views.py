@@ -1,9 +1,13 @@
+from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
-from rest_framework import generics
-from rest_framework.exceptions import PermissionDenied
+from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied, ValidationError as APIValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from apps.accounting.models import Account
+from apps.accounting.models import JournalEntry
+from apps.accounting.services import publish_journal_entry
 from apps.accounting.serializers.account import (
     AccountListQuerySerializer,
     AccountSerializer,
@@ -100,3 +104,35 @@ class AccountDetailView(AccountAccessMixin, generics.RetrieveUpdateAPIView):
     @version 1.0
     @author Agustin
     """
+
+
+class JournalEntryPublishView(generics.GenericAPIView):
+    """
+    Publica un asiento borrador de una Company autorizada.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, company_id, pk):
+        """
+        Ejecuta la publicación con las validaciones del dominio Accounting.
+
+        @version 1.0
+        @author Agustin
+        """
+        company = get_object_or_404(Company, pk=company_id)
+        if not CompanyMember.objects.filter(user=request.user, company=company).exists():
+            raise PermissionDenied()
+        entry = get_object_or_404(JournalEntry, pk=pk, company=company)
+        try:
+            entry = publish_journal_entry(entry.pk)
+        except ValidationError as error:
+            raise APIValidationError(error.messages) from error
+        return Response(
+            {"id": entry.pk, "number": entry.number, "status": entry.status},
+            status=status.HTTP_200_OK,
+        )
