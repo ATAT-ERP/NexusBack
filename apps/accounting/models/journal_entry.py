@@ -149,6 +149,15 @@ class JournalEntry(models.Model):
         self.status = EntryStatus.POSTED
         return super().save(update_fields=("status", "updated_at"))
 
+    def _mark_reversed(self):
+        """
+        Persiste REVERSED tras la validación y bloqueo del service de Accounting.
+        @version 1.0
+        @author Agustin
+        """
+        self.status = EntryStatus.REVERSED
+        return super().save(update_fields=("status", "updated_at"))
+
     def delete(self, *args, **kwargs):
         """
         Elimina el asiento solo si sigue siendo borrador bajo bloqueo.

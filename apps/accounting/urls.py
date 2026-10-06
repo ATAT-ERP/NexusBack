@@ -4,6 +4,7 @@ from apps.accounting.views import (
     AccountDetailView,
     AccountListCreateView,
     JournalEntryPublishView,
+    JournalEntryReverseView,
 )
 
 
@@ -12,6 +13,11 @@ urlpatterns = [
         "companies/<uuid:company_id>/journal-entries/<int:pk>/publish/",
         JournalEntryPublishView.as_view(),
         name="journal-entry-publish",
+    ),
+    path(
+        "companies/<uuid:company_id>/journal-entries/<int:pk>/reverse/",
+        JournalEntryReverseView.as_view(),
+        name="journal-entry-reverse",
     ),
     path(
         "companies/<uuid:company_id>/accounts/",
