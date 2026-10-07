@@ -15,14 +15,15 @@ from rest_framework.response import Response
 from storage3.exceptions import StorageException
 
 from apps.company.models import CompanyMember
-from apps.documents.api.serializers import (
+from apps.cloud.excel import reader as excel_reader
+from apps.cloud.files.api.serializers import (
     CompanyQuery,
-    DocumentCreateSerializer,
-    DocumentSerializer,
+    FileCreateSerializer,
+    FileSerializer,
     ListQuerySerializer,
 )
-from apps.documents.models import Document
-from apps.documents.storage import storage_client
+from apps.cloud.models import File
+from apps.cloud.files.storage import storage_client
 from apps.users.authentication import SupabaseBearerAuthentication
 
 
@@ -30,31 +31,31 @@ logger = logging.getLogger(__name__)
 SIGNED_URL_EXPIRATION_SECONDS = 60
 
 
-class DocumentViewSet(
+class FileViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     """
-    Crea, lista y actualiza la metadata de documentos restringida a una Company.
+    Crea, lista y actualiza la metadata de archivos restringida a una Company.
 
     @version 2.1
     @author Agustin
     """
 
-    serializer_class = DocumentSerializer
+    serializer_class = FileSerializer
     http_method_names = ["get", "post", "patch", "head", "options"]
     authentication_classes = (SupabaseBearerAuthentication,)
 
     def get_permissions(self):
         """
-        Exige un usuario autenticado para crear, listar o descargar documentos.
+        Exige un usuario autenticado para crear, listar o descargar archivos.
 
         @version 1.2
         @author Agustin
         """
-        if self.action in ("create", "list", "download"):
+        if self.action in ("create", "list", "download", "sheets", "sheet"):
             return [IsAuthenticated()]
         return super().get_permissions()
 
@@ -66,8 +67,8 @@ class DocumentViewSet(
         @author Agustin
         """
         if self.request.method == "POST":
-            return DocumentCreateSerializer
-        return DocumentSerializer
+            return FileCreateSerializer
+        return FileSerializer
 
     def create(self, request, *args, **kwargs):
         """
@@ -78,8 +79,8 @@ class DocumentViewSet(
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        document = self.perform_create(serializer)
-        return Response(DocumentSerializer(document).data, status=status.HTTP_201_CREATED)
+        file = self.perform_create(serializer)
+        return Response(FileSerializer(file).data, status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
         """
@@ -90,8 +91,8 @@ class DocumentViewSet(
         """
         uploaded_file = serializer.validated_data["file"]
         company = serializer.validated_data["company"]
-        document_id = uuid.uuid4()
-        storage_key = f"{company.id}/{document_id}"
+        file_id = uuid.uuid4()
+        storage_key = f"{company.id}/{file_id}"
         mime_type = uploaded_file.content_type
         bucket = storage_client.storage.from_("documents")
 
@@ -102,7 +103,7 @@ class DocumentViewSet(
         )
         try:
             return serializer.save(
-                id=document_id,
+                id=file_id,
                 name=serializer.validated_data.get("name", uploaded_file.name),
                 original_name=uploaded_file.name,
                 mime_type=mime_type,
@@ -113,7 +114,7 @@ class DocumentViewSet(
             try:
                 bucket.remove([storage_key])
             except Exception:
-                logger.exception("Supabase Storage cleanup failed for document %s.", document_id)
+                logger.exception("Supabase Storage cleanup failed for document %s.", file_id)
             raise
 
     def get_object(self):
@@ -124,19 +125,19 @@ class DocumentViewSet(
         @author Agustin
         """
         try:
-            document_id = uuid.UUID(self.kwargs["pk"])
+            file_id = uuid.UUID(self.kwargs["pk"])
         except (TypeError, ValueError):
             self._not_found()
 
         try:
-            if self.action == "download":
-                return get_object_or_404(Document, id=document_id)
+            if self.action in ("download", "sheets", "sheet"):
+                return get_object_or_404(File, id=file_id)
 
             query_serializer = CompanyQuery(data=self.request.query_params)
             query_serializer.is_valid(raise_exception=True)
             return get_object_or_404(
-                Document,
-                id=document_id,
+                File,
+                id=file_id,
                 company_id=query_serializer.validated_data["company_id"],
             )
         except Http404:
@@ -144,7 +145,7 @@ class DocumentViewSet(
 
     def handle_exception(self, error):
         """
-        Normaliza los errores de validación y Storage de la API de documentos.
+        Normaliza los errores de validación y Storage de la API de archivos.
 
         @version 1.1
         @param error Excepción capturada durante la solicitud.
@@ -159,6 +160,19 @@ class DocumentViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(error, excel_reader.InvalidWorkbook):
+            return Response(
+                {
+                    "code": "NEX-DOC-006",
+                    "message": "El archivo XLSX no es válido.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(error, excel_reader.SheetNotFound):
+            return Response(
+                {"code": "NEX-DOC-007", "message": "Hoja no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         if isinstance(error, (StorageException, httpx.RequestError)):
             if self.action == "download":
                 logger.exception("[NEX-DOC-004] Supabase Storage signed URL creation failed.")
@@ -166,6 +180,15 @@ class DocumentViewSet(
                     {
                         "code": "NEX-DOC-004",
                         "message": "No fue posible preparar la descarga del documento.",
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            if self.action in ("sheets", "sheet"):
+                logger.exception("[NEX-DOC-005] Supabase Storage file download failed.")
+                return Response(
+                    {
+                        "code": "NEX-DOC-005",
+                        "message": "No fue posible leer el archivo almacenado.",
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
@@ -182,29 +205,71 @@ class DocumentViewSet(
     @action(detail=True, methods=["get"], url_path="download")
     def download(self, request, *args, **kwargs):
         """
-        Genera una URL temporal para descargar un documento de la Company autorizada.
+        Genera una URL temporal para descargar un archivo de la Company autorizada.
+
+        @version 1.1
+        @author Agustin
+        """
+        file = self.get_object()
+        self._check_membership(file, request.user)
+
+        signed_url = storage_client.storage.from_("documents").create_signed_url(
+            file.storage_key,
+            SIGNED_URL_EXPIRATION_SECONDS,
+            {"download": file.original_name},
+        )["signedURL"]
+        return Response({"url": signed_url})
+
+    @action(detail=True, methods=["get"], url_path="sheets")
+    def sheets(self, request, *args, **kwargs):
+        """Devuelve las hojas disponibles en un archivo XLSX autorizado.
 
         @version 1.0
         @author Agustin
         """
-        document = self.get_object()
-        if not CompanyMember.objects.filter(
-            user=request.user,
-            company_id=document.company_id,
-        ).exists():
-            raise PermissionDenied()
+        content = self._excel_content()
+        return Response({"sheets": excel_reader.sheets(content)})
 
-        signed_url = storage_client.storage.from_("documents").create_signed_url(
-            document.storage_key,
-            SIGNED_URL_EXPIRATION_SECONDS,
-            {"download": document.original_name},
-        )["signedURL"]
-        return Response({"url": signed_url})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"sheets/(?P<sheet>[^/]+)",
+    )
+    def sheet(self, request, sheet, *args, **kwargs):
+        """Devuelve los valores de una hoja de un archivo XLSX autorizado.
+
+        @version 1.0
+        @author Agustin
+        """
+        content = self._excel_content()
+        return Response({"name": sheet, "rows": excel_reader.read(content, sheet)})
+
+    def _excel_content(self):
+        """Valida el acceso y devuelve el contenido almacenado de un XLSX.
+
+        @version 1.0
+        @author Agustin
+        """
+        file = self.get_object()
+        self._check_membership(file, self.request.user)
+        if not file.original_name.lower().endswith(".xlsx"):
+            raise ValidationError("El archivo debe tener extensión .xlsx.")
+        return storage_client.storage.from_("documents").download(file.storage_key)
+
+    @staticmethod
+    def _check_membership(file, user):
+        """Exige membresía en la Company dueña del archivo.
+
+        @version 1.0
+        @author Agustin
+        """
+        if not CompanyMember.objects.filter(user=user, company_id=file.company_id).exists():
+            raise PermissionDenied()
 
     @action(detail=False, methods=["get"])
     def usage(self, request):
         """
-        Devuelve el uso y espacio disponible de documentos para una Company.
+        Devuelve el uso y espacio disponible de archivos para una Company.
 
         @version 1.0
         @author Agustin
@@ -213,7 +278,7 @@ class DocumentViewSet(
         query.is_valid(raise_exception=True)
 
         used = (
-            Document.objects.filter(company_id=query.validated_data["company_id"])
+            File.objects.filter(company_id=query.validated_data["company_id"])
             .aggregate(used=Sum("size"))["used"]
             or 0
         )
@@ -243,18 +308,18 @@ class DocumentViewSet(
         ).exists():
             raise PermissionDenied()
 
-        documents = Document.objects.filter(company_id=filters["company_id"])
+        files = File.objects.filter(company_id=filters["company_id"])
         category_id = filters.get("category_id")
         if category_id is not None:
-            documents = documents.filter(category_id=category_id)
+            files = files.filter(category_id=category_id)
 
         search = filters.get("q", "")
         if search:
-            documents = documents.filter(
+            files = files.filter(
                 Q(name__icontains=search) | Q(original_name__icontains=search)
             )
 
-        return documents.order_by("-created_at")
+        return files.order_by("-created_at")
 
     @staticmethod
     def _not_found():

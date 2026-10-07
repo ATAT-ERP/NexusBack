@@ -2,10 +2,10 @@ from django.conf import settings
 from rest_framework import serializers
 
 from apps.company.models import Company
-from apps.documents.models import Document
+from apps.cloud.models import File
 
 
-ALLOWED_DOCUMENT_MIME_TYPES = (
+ALLOWED_FILE_MIME_TYPES = (
     "application/pdf",
     "image/jpeg",
     "image/png",
@@ -14,9 +14,9 @@ ALLOWED_DOCUMENT_MIME_TYPES = (
 )
 
 
-class DocumentSerializer(serializers.ModelSerializer):
+class FileSerializer(serializers.ModelSerializer):
     """
-    Expone la metadata pública de un documento sin revelar su clave de almacenamiento.
+    Expone la metadata pública de un archivo sin revelar su clave de almacenamiento.
 
     @version 1.0
     @author Agustin
@@ -25,7 +25,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     company_id = serializers.UUIDField(read_only=True)
 
     class Meta:
-        model = Document
+        model = File
         fields = (
             "id",
             "company_id",
@@ -48,9 +48,9 @@ class DocumentSerializer(serializers.ModelSerializer):
         )
 
 
-class DocumentCreateSerializer(serializers.ModelSerializer):
+class FileCreateSerializer(serializers.ModelSerializer):
     """
-    Valida los datos necesarios para crear un documento desde un archivo recibido.
+    Valida los datos necesarios para crear un archivo desde un archivo recibido.
 
     @version 1.0
     @author Agustin
@@ -63,7 +63,7 @@ class DocumentCreateSerializer(serializers.ModelSerializer):
     file = serializers.FileField(write_only=True, allow_empty_file=True)
 
     class Meta:
-        model = Document
+        model = File
         fields = (
             "id",
             "company_id",
@@ -98,7 +98,7 @@ class DocumentCreateSerializer(serializers.ModelSerializer):
 
     def validate_file(self, uploaded_file):
         """
-        Valida el tamaño y tipo MIME admitidos para un archivo de Documents.
+        Valida el tamaño y tipo MIME admitidos para un archivo de Files.
 
         @version 1.0
         @author Agustin
@@ -107,14 +107,14 @@ class DocumentCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("El archivo no puede estar vacío.")
         if uploaded_file.size > settings.DOCUMENT_MAX_SIZE_BYTES:
             raise serializers.ValidationError("El archivo supera el tamaño máximo permitido.")
-        if uploaded_file.content_type not in ALLOWED_DOCUMENT_MIME_TYPES:
+        if uploaded_file.content_type not in ALLOWED_FILE_MIME_TYPES:
             raise serializers.ValidationError("El tipo de archivo no está permitido.")
         return uploaded_file
 
 
 class CompanyQuery(serializers.Serializer):
     """
-    Valida la Company requerida para operar sobre documentos.
+    Valida la Company requerida para operar sobre archivos.
 
     @version 1.0
     @author Agustin
@@ -125,7 +125,7 @@ class CompanyQuery(serializers.Serializer):
 
 class ListQuerySerializer(CompanyQuery):
     """
-    Valida los filtros admitidos para el listado de documentos de una Company.
+    Valida los filtros admitidos para el listado de archivos de una Company.
 
     @version 1.0
     @author Agustin

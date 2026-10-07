@@ -51,9 +51,11 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
-    "apps.documents.apps.DocumentsConfig",
+    "apps.cloud.apps.CloudConfig",
     "apps.users.apps.UsersConfig",
     "apps.company.apps.CompanyConfig",
+    "apps.billing.apps.BillingConfig",
+    "apps.accounting.apps.AccountingConfig",
 ]
 
 REST_FRAMEWORK = {
