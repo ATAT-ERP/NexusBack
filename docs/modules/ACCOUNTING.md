@@ -28,6 +28,12 @@ El label de la aplicación Django es `accounting` (`apps.accounting`).
 | `is_active` | Las cuentas inactivas no reciben movimientos normales; pueden reutilizarse en una reversión interna. |
 | `created_at`, `updated_at` | Timestamps administrados por Django. |
 
+`code`, `name` y `account_type` permanecen editables mientras la cuenta no tenga
+movimientos en asientos `POSTED` o `REVERSED`; las referencias de borradores no
+los bloquean. Después del primer uso histórico, esos campos quedan protegidos.
+`is_active` continúa siendo modificable. Desactivar una cuenta no impide consultar
+su historial ni revertirlo.
+
 ### JournalEntry (`accounting_journal_entries`)
 
 | Campo | Descripción |

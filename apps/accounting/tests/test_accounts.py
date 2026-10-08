@@ -1,13 +1,17 @@
 import uuid
+from datetime import date
+from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import override_settings
 from django.urls import include, path
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from apps.accounting.enums import AccountType
-from apps.accounting.models import Account
+from apps.accounting.enums import AccountType, EntryStatus
+from apps.accounting.models import Account, JournalEntry, JournalLine
+from apps.accounting.services import publish_journal_entry, reverse_journal_entry
 from apps.company.models import Company, CompanyMember, CompanyRole
 from apps.users.models import User
 
@@ -296,3 +300,234 @@ class AccountTests(APITestCase):
         self.assertIn("code", response.data)
         account.refresh_from_db()
         self.assertEqual(account.code, "1.1.02")
+
+    def create_account(self, code="1.1.01"):
+        """Crea una cuenta del plan de la Company de prueba.
+
+        @version 1.0
+        @author Agustin
+        """
+        return Account.objects.create(
+            company=self.company,
+            code=code,
+            name="Caja",
+            account_type=AccountType.ASSET,
+        )
+
+    def create_posted_entry(self, account):
+        """Publica un asiento balanceado que utiliza la cuenta indicada.
+
+        @version 1.0
+        @author Agustin
+        """
+        offset = self.create_account(code="9.9.99")
+        entry = JournalEntry.objects.create(
+            company=self.company,
+            accounting_date=date(2026, 10, 8),
+            description="Asiento histórico",
+        )
+        JournalLine.objects.create(
+            journal_entry=entry,
+            account=account,
+            description="Debe",
+            debit=Decimal("10.00"),
+        )
+        JournalLine.objects.create(
+            journal_entry=entry,
+            account=offset,
+            description="Haber",
+            credit=Decimal("10.00"),
+        )
+        publish_journal_entry(entry.pk)
+        return entry
+
+    def test_account_without_history_remains_editable(self):
+        """Permite editar todos los datos de una cuenta sin movimientos.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        account.code = "1.1.02"
+        account.name = "Caja general"
+        account.account_type = AccountType.LIABILITY
+        account.is_active = False
+        account.save()
+        account.refresh_from_db()
+        self.assertEqual(account.code, "1.1.02")
+        self.assertEqual(account.name, "Caja general")
+        self.assertEqual(account.account_type, AccountType.LIABILITY)
+        self.assertFalse(account.is_active)
+
+    def test_account_used_only_in_draft_remains_editable(self):
+        """Permite editar una cuenta referenciada sólo por un borrador.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        draft = JournalEntry.objects.create(
+            company=self.company,
+            accounting_date=date(2026, 10, 8),
+            description="Borrador",
+        )
+        JournalLine.objects.create(
+            journal_entry=draft,
+            account=account,
+            description="Debe",
+            debit=Decimal("10.00"),
+        )
+
+        for code, name, account_type in (
+            ("1.1.02", "Caja general", AccountType.LIABILITY),
+            ("1.1.03", "Caja central", AccountType.EQUITY),
+        ):
+            account.code = code
+            account.name = name
+            account.account_type = account_type
+            account.is_active = False
+            account.save()
+        account.refresh_from_db()
+        self.assertEqual(account.code, "1.1.03")
+        self.assertEqual(account.name, "Caja central")
+        self.assertEqual(account.account_type, AccountType.EQUITY)
+        self.assertFalse(account.is_active)
+        self.assertEqual(draft.status, EntryStatus.DRAFT)
+
+    def test_historical_account_protects_identity_but_allows_noop_and_deactivation(self):
+        """Congela código, nombre y tipo tras publicar, pero admite actividad.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        self.create_posted_entry(account)
+        original = (account.code, account.name, account.account_type)
+
+        for field, value in (
+            ("code", "1.1.02"),
+            ("name", "Caja modificada"),
+            ("account_type", AccountType.LIABILITY),
+        ):
+            with self.subTest(field=field):
+                setattr(account, field, value)
+                with self.assertRaises(ValidationError):
+                    account.save()
+                account.refresh_from_db()
+                self.assertEqual(
+                    (account.code, account.name, account.account_type), original
+                )
+
+        account.save()
+        account.name = "Cambio que no se guarda"
+        account.is_active = False
+        account.save(update_fields=["is_active"])
+        account.refresh_from_db()
+        self.assertFalse(account.is_active)
+        self.assertEqual(account.name, "Caja")
+
+    def test_reversed_entry_also_protects_account_identity(self):
+        """Incluye REVERSED entre los estados que conservan identidad histórica.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        entry = self.create_posted_entry(account)
+        reverse_journal_entry(entry.pk)
+        account.name = "Nombre nuevo"
+
+        with self.assertRaises(ValidationError):
+            account.save()
+
+        account.refresh_from_db()
+        self.assertEqual(account.name, "Caja")
+
+    def test_queryset_update_rejects_historical_changes_but_allows_is_active(self):
+        """Protege campos históricos en update() y permite desactivar.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        self.create_posted_entry(account)
+
+        with self.assertRaises(ValidationError):
+            Account.objects.filter(pk=account.pk).update(name="Caja nueva")
+        self.assertEqual(
+            Account.objects.filter(pk=account.pk).update(is_active=False), 1
+        )
+        account.refresh_from_db()
+        self.assertEqual(account.name, "Caja")
+        self.assertFalse(account.is_active)
+
+    def test_bulk_update_uses_historical_protection_and_allows_is_active(self):
+        """Reutiliza update() para bloquear bulk_update() sin bloquear actividad.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        self.create_posted_entry(account)
+        account.name = "Caja nueva"
+
+        with self.assertRaises(ValidationError):
+            with transaction.atomic():
+                Account.objects.bulk_update([account], ["name"])
+
+        account.refresh_from_db()
+        account.is_active = False
+        Account.objects.bulk_update([account], ["is_active"])
+        account.refresh_from_db()
+        self.assertEqual(account.name, "Caja")
+        self.assertFalse(account.is_active)
+
+    def test_mixed_queryset_update_is_atomic_when_one_account_is_historical(self):
+        """No modifica tampoco cuentas nuevas si el queryset incluye una histórica.
+
+        @version 1.0
+        @author Agustin
+        """
+        historical = self.create_account()
+        current = self.create_account(code="1.1.02")
+        self.create_posted_entry(historical)
+
+        with self.assertRaises(ValidationError):
+            Account.objects.filter(pk__in=[historical.pk, current.pk]).update(
+                name="Cambio masivo"
+            )
+
+        historical.refresh_from_db()
+        current.refresh_from_db()
+        self.assertEqual(historical.name, "Caja")
+        self.assertEqual(current.name, "Caja")
+
+        current.name = "Cambio masivo"
+        historical.name = "Cambio masivo"
+        with self.assertRaises(ValidationError):
+            with transaction.atomic():
+                Account.objects.bulk_update(
+                    [current, historical], ["name"], batch_size=1
+                )
+
+        historical.refresh_from_db()
+        current.refresh_from_db()
+        self.assertEqual(historical.name, "Caja")
+        self.assertEqual(current.name, "Caja")
+
+    def test_api_rejects_historical_identity_change_and_allows_deactivation(self):
+        """Devuelve 400 por cambios históricos y permite is_active por API.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        self.create_posted_entry(account)
+        url = f"{self.list_url}{account.pk}/"
+
+        response = self.client.patch(url, {"name": "Caja nueva"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No se pueden cambiar", str(response.data))
+
+        response = self.client.patch(url, {"is_active": False}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

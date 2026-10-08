@@ -168,6 +168,18 @@ class AccountDetailView(AccountAccessMixin, generics.RetrieveUpdateAPIView):
     @author Agustin
     """
 
+    def perform_update(self, serializer):
+        """
+        Traduce las restricciones del modelo a errores de validación de la API.
+
+        @version 1.0
+        @author Agustin
+        """
+        try:
+            serializer.save()
+        except ValidationError as error:
+            raise APIValidationError(error.messages) from error
+
 
 class JournalEntryPublishView(generics.GenericAPIView):
     """
