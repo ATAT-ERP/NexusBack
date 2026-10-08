@@ -1,12 +1,15 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
+from django.db.models import F, Prefetch, Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied, ValidationError as APIValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.accounting.models import Account
-from apps.accounting.models import JournalEntry
+from apps.accounting.enums import EntryStatus
+from apps.accounting.models import Account, JournalEntry, JournalLine
 from apps.accounting.services import (
     publish_journal_entry,
     reverse_journal_entry,
@@ -15,13 +18,40 @@ from apps.accounting.serializers.account import (
     AccountListQuerySerializer,
     AccountSerializer,
 )
+from apps.accounting.serializers.journal_entry import (
+    DateRangeQuerySerializer,
+    GeneralLedgerRowSerializer,
+    JournalEntryDetailSerializer,
+    JournalEntryListQuerySerializer,
+    JournalEntrySerializer,
+    TrialBalanceRowSerializer,
+)
 from apps.company.models import Company, CompanyMember
 from apps.users.authentication import SupabaseBearerAuthentication
 
+LINES_PREFETCH = Prefetch(
+    "lines",
+    queryset=JournalLine.objects.select_related("account").order_by("pk"),
+)
 
-class AccountAccessMixin:
+
+def apply_date_range(queryset, filters):
     """
-    Limita el plan de cuentas a la Company de la URL y sus miembros.
+    Acota los asientos del historial al rango de fechas contables consultado.
+
+    @version 1.0
+    @author Agustin
+    """
+    if "accounting_date_from" in filters:
+        queryset = queryset.filter(accounting_date__gte=filters["accounting_date_from"])
+    if "accounting_date_to" in filters:
+        queryset = queryset.filter(accounting_date__lte=filters["accounting_date_to"])
+    return queryset
+
+
+class CompanyAccessMixin:
+    """
+    Limita la consulta a la Company de la URL y sus miembros.
 
     @version 1.0
     @author Agustin
@@ -29,7 +59,6 @@ class AccountAccessMixin:
 
     authentication_classes = (SupabaseBearerAuthentication,)
     permission_classes = (IsAuthenticated,)
-    serializer_class = AccountSerializer
 
     def get_company(self):
         """
@@ -46,6 +75,17 @@ class AccountAccessMixin:
             raise PermissionDenied()
         return company
 
+
+class AccountAccessMixin(CompanyAccessMixin):
+    """
+    Limita el plan de cuentas a la Company de la URL y sus miembros.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    serializer_class = AccountSerializer
+
     def get_queryset(self):
         """
         Devuelve únicamente las cuentas de la Company autorizada.
@@ -54,6 +94,26 @@ class AccountAccessMixin:
         @author Agustin
         """
         return Account.objects.filter(company=self.get_company())
+
+
+class JournalEntryHistoryMixin(CompanyAccessMixin):
+    """
+    Expone el historial contable válido de la Company autorizada.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    def get_history_queryset(self):
+        """
+        Devuelve los asientos no borradores que integran el historial contable.
+
+        @version 1.0
+        @author Agustin
+        """
+        return JournalEntry.objects.filter(company=self.get_company()).exclude(
+            status=EntryStatus.DRAFT
+        )
 
 
 class AccountListCreateView(AccountAccessMixin, generics.ListCreateAPIView):
@@ -170,4 +230,175 @@ class JournalEntryReverseView(generics.GenericAPIView):
         return Response(
             {"id": reversal.pk, "number": reversal.number, "status": reversal.status},
             status=status.HTTP_200_OK,
+        )
+
+
+class JournalEntryListView(JournalEntryHistoryMixin, generics.ListAPIView):
+    """
+    Lista cronológicamente los asientos del historial de una Company autorizada.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    serializer_class = JournalEntrySerializer
+
+    def get_queryset(self):
+        """
+        Aplica los filtros de fecha, estado y origen al historial contable.
+
+        @version 1.0
+        @author Agustin
+        """
+        entries = self.get_history_queryset()
+        filters = JournalEntryListQuerySerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        entries = apply_date_range(entries, filters.validated_data)
+        if "status" in filters.validated_data:
+            entries = entries.filter(status=filters.validated_data["status"])
+        if "source_type" in filters.validated_data:
+            entries = entries.filter(source_type=filters.validated_data["source_type"])
+        return entries.order_by("accounting_date", "number")
+
+
+class JournalEntryDetailView(JournalEntryHistoryMixin, generics.RetrieveAPIView):
+    """
+    Devuelve el detalle completo de un asiento con sus movimientos.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    serializer_class = JournalEntryDetailSerializer
+
+    def get_queryset(self):
+        """
+        Devuelve el historial con los movimientos cargados en orden de registro.
+
+        @version 1.0
+        @author Agustin
+        """
+        return self.get_history_queryset().prefetch_related(LINES_PREFETCH)
+
+
+class DailyJournalView(JournalEntryHistoryMixin, generics.ListAPIView):
+    """
+    Consulta cronológicamente los asientos del historial dentro de un rango.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    serializer_class = JournalEntryDetailSerializer
+
+    def get_queryset(self):
+        """
+        Devuelve el Libro Diario acotado al rango de fechas consultado.
+
+        @version 1.0
+        @author Agustin
+        """
+        entries = self.get_history_queryset()
+        filters = DateRangeQuerySerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        entries = apply_date_range(entries, filters.validated_data)
+        return entries.order_by("accounting_date", "number").prefetch_related(
+            LINES_PREFETCH
+        )
+
+
+class GeneralLedgerView(JournalEntryHistoryMixin, generics.GenericAPIView):
+    """
+    Consulta el Libro Mayor de una cuenta de la Company autorizada.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    serializer_class = GeneralLedgerRowSerializer
+
+    def get(self, request, *args, **kwargs):
+        """
+        Devuelve los movimientos de la cuenta con su saldo acumulado.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = get_object_or_404(
+            Account, pk=self.kwargs["account_id"], company=self.get_company()
+        )
+        filters = DateRangeQuerySerializer(data=request.query_params)
+        filters.is_valid(raise_exception=True)
+        history = self.get_history_queryset()
+        entries = apply_date_range(history, filters.validated_data)
+        lines = (
+            JournalLine.objects.filter(account=account, journal_entry__in=entries)
+            .select_related("journal_entry")
+            .order_by("journal_entry__accounting_date", "journal_entry__number", "pk")
+        )
+        balance = self.get_opening_balance(account, history, filters.validated_data)
+        rows = []
+        for line in lines:
+            balance += line.debit - line.credit
+            rows.append(
+                {
+                    "accounting_date": line.journal_entry.accounting_date,
+                    "entry_number": line.journal_entry.number,
+                    "description": line.journal_entry.description,
+                    "debit": line.debit,
+                    "credit": line.credit,
+                    "balance": balance,
+                }
+            )
+        return Response(self.get_serializer(rows, many=True).data)
+
+    def get_opening_balance(self, account, history, filters):
+        """
+        Calcula el saldo de la cuenta previo al inicio del rango consultado.
+
+        Sin fecha inicial el rango cubre todo el historial y el saldo inicial es cero.
+
+        @version 1.0
+        @author Agustin
+        """
+        if "accounting_date_from" not in filters:
+            return Decimal("0")
+        prior_entries = history.filter(
+            accounting_date__lt=filters["accounting_date_from"]
+        )
+        totals = JournalLine.objects.filter(
+            account=account, journal_entry__in=prior_entries
+        ).aggregate(debit=Sum("debit"), credit=Sum("credit"))
+        debit = totals["debit"] or Decimal("0")
+        credit = totals["credit"] or Decimal("0")
+        return debit - credit
+
+
+class TrialBalanceView(JournalEntryHistoryMixin, generics.ListAPIView):
+    """
+    Resume Debe, Haber y balance por cuenta dentro de un rango de fechas.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    serializer_class = TrialBalanceRowSerializer
+
+    def get_queryset(self):
+        """
+        Agrupa los movimientos del rango por cuenta sin persistir resultados.
+
+        @version 1.0
+        @author Agustin
+        """
+        entries = self.get_history_queryset()
+        filters = DateRangeQuerySerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        entries = apply_date_range(entries, filters.validated_data)
+        return (
+            JournalLine.objects.filter(journal_entry__in=entries)
+            .values("account_id", "account__code", "account__name")
+            .annotate(total_debit=Sum("debit"), total_credit=Sum("credit"))
+            .annotate(balance=F("total_debit") - F("total_credit"))
+            .order_by("account__code")
         )
