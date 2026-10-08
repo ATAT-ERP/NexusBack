@@ -65,6 +65,7 @@ python manage.py runserver
 - [Arquitectura](docs/ARCHITECTURE.md)
 - [Módulo users](docs/modules/USERS.md)
 - [Módulo cloud](docs/modules/CLOUD.md)
+- [Módulo accounting](docs/modules/ACCOUNTING.md)
 - [Códigos de error](docs/ERROR_CODES.md)
 
 Las convenciones del repositorio y las instrucciones para agentes de desarrollo se encuentran en [`AGENTS.md`](AGENTS.md).

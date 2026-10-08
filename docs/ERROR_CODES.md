@@ -53,3 +53,21 @@ secretos, Supabase service keys ni credenciales completas.
 El registro y el inicio de sesión mediante Supabase Auth están implementados,
 y los errores conocidos de Auth se traducen a códigos HTTP de NexusBack. Los
 endpoints protegidos de `users` validan JWT Bearer contra Supabase Auth.
+
+## Accounting
+
+Los códigos `NEX-ACC-*` identifican únicamente los errores funcionales propios
+de Accounting. Sus detalles se conservan en este catálogo; la respuesta HTTP
+pública incluye sólo el campo `code`.
+
+| Código | Caso interno | HTTP | Descripción |
+| --- | --- | --- | --- |
+| `NEX-ACC-001` | Cuenta duplicada dentro de una Company. | `400 Bad Request` | Lo genera el serializer al detectar un código ya utilizado. También identifica una colisión de la restricción de unicidad `unique_account_company_code` posterior a la validación. La respuesta pública es `{"code": "NEX-ACC-001"}`. |
+| `NEX-ACC-002` | Modificación prohibida de datos históricos de una cuenta. | `400 Bad Request` | Se intenta cambiar `code`, `name` o `account_type` de una cuenta utilizada en un asiento `POSTED` o `REVERSED`. La respuesta pública es `{"code": "NEX-ACC-002"}`. |
+| `NEX-ACC-003` | Publicación rechazada por reglas contables. | `400 Bad Request` | El asiento no está en `DRAFT`, tiene menos de dos movimientos, está desbalanceado o utiliza cuentas no válidas. La respuesta pública es `{"code": "NEX-ACC-003"}`. |
+| `NEX-ACC-004` | Reversión rechazada por reglas contables. | `400 Bad Request` | El asiento no está en `POSTED` o falla una regla contable del flujo de reversión. La respuesta pública es `{"code": "NEX-ACC-004"}`. |
+
+Los errores estándar de Django REST Framework que no tienen uno de estos códigos
+conservan su respuesta anterior. La colisión de unicidad se reconoce por el
+diagnóstico de la restricción en PostgreSQL y por el diagnóstico exacto de las
+columnas únicas en SQLite; los demás `IntegrityError` se propagan normalmente.
