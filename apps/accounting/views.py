@@ -101,7 +101,7 @@ class JournalEntryHistoryMixin(CompanyAccessMixin):
     Expone el historial contable válido de la Company autorizada.
 
     @version 1.0
-    @author Agustin
+    @author Antonio
     """
 
     def get_history_queryset(self):
@@ -109,7 +109,7 @@ class JournalEntryHistoryMixin(CompanyAccessMixin):
         Devuelve los asientos no borradores que integran el historial contable.
 
         @version 1.0
-        @author Agustin
+        @author Antonio
         """
         return JournalEntry.objects.filter(company=self.get_company()).exclude(
             status=EntryStatus.DRAFT

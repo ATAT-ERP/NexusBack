@@ -8,11 +8,20 @@ from apps.accounting.models import Account, JournalEntry, JournalLine
 from apps.company.models import Company
 
 
-@transaction.atomic
 def publish_journal_entry(entry_id):
     """
     Valida y publica un asiento como registro histórico inmutable.
-    @version 1.1
+    @version 1.2
+    @author Agustin
+    """
+    return _publish_journal_entry(entry_id)
+
+
+@transaction.atomic
+def _publish_journal_entry(entry_id, *, allow_inactive_accounts=False):
+    """
+    Publica bajo bloqueo; sólo la reversión interna admite cuentas inactivas.
+    @version 1.0
     @author Agustin
     """
     entry = JournalEntry.objects.select_for_update().get(pk=entry_id)
@@ -35,7 +44,7 @@ def publish_journal_entry(entry_id):
     )
     if any(account.company_id != entry.company_id for account in accounts):
         errors.append("Todas las cuentas deben pertenecer a la compañía del asiento.")
-    if any(not account.is_active for account in accounts):
+    if not allow_inactive_accounts and any(not account.is_active for account in accounts):
         errors.append("Todas las cuentas utilizadas deben estar activas.")
 
     totals = lines.aggregate(debit=Sum("debit"), credit=Sum("credit"))
@@ -52,8 +61,8 @@ def publish_journal_entry(entry_id):
 @transaction.atomic
 def reverse_journal_entry(entry_id, user=None):
     """
-    Crea y publica el asiento inverso de un asiento histórico POSTED.
-    @version 1.0
+    Revierte un asiento POSTED conservando sus cuentas aunque estén inactivas.
+    @version 1.1
     @author Agustin
     """
     entry = JournalEntry.objects.select_for_update().get(pk=entry_id)
@@ -71,14 +80,16 @@ def reverse_journal_entry(entry_id, user=None):
     )
     reversal.save()
     for line in entry.lines.all():
-        JournalLine.objects.create(
+        reversal_line = JournalLine(
             journal_entry=reversal,
             account=line.account,
             description=line.description,
             debit=line.credit,
             credit=line.debit,
         )
+        reversal_line._allow_inactive_account = True
+        reversal_line.save()
 
-    reversal = publish_journal_entry(reversal.pk)
+    reversal = _publish_journal_entry(reversal.pk, allow_inactive_accounts=True)
     entry._mark_reversed()
     return reversal

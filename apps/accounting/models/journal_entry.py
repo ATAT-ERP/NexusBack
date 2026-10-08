@@ -15,12 +15,14 @@ class JournalEntryQuerySet(models.QuerySet):
 
     def update(self, **kwargs):
         """
-        Actualiza asientos borrador tras bloquearlos en orden estable.
-        @version 1.1
+        Actualiza borradores sin alterar su numeración ni Company.
+        @version 1.2
         @author Agustin
         """
         if "status" in kwargs:
             raise ValidationError("El estado del asiento solo puede cambiarse mediante Accounting.")
+        if {"number", "company", "company_id"}.intersection(kwargs):
+            raise ValidationError("El número y la compañía del asiento no pueden modificarse.")
         with transaction.atomic():
             entries = list(self.select_for_update().order_by("pk"))
             if any(entry.status != EntryStatus.DRAFT for entry in entries):
@@ -118,8 +120,8 @@ class JournalEntry(models.Model):
 
     def save(self, *args, **kwargs):
         """
-        Numera y modifica borradores, bloqueando el asiento existente.
-        @version 2.1
+        Numera borradores al crearlos y conserva su número y Company al editarlos.
+        @version 2.2
         @author Agustin
         """
         if self._state.adding:
@@ -131,6 +133,7 @@ class JournalEntry(models.Model):
                     company_id=self.company_id
                 ).aggregate(Max("number"))["number__max"]
                 self.number = (last_number or 0) + 1
+                kwargs["force_insert"] = True
                 return super().save(*args, **kwargs)
         with transaction.atomic():
             current = type(self).objects.select_for_update().get(pk=self.pk)
@@ -138,6 +141,8 @@ class JournalEntry(models.Model):
                 raise ValidationError("Los asientos publicados no pueden modificarse.")
             if self.status != EntryStatus.DRAFT:
                 raise ValidationError("Use la operación de publicación de Accounting.")
+            if self.number != current.number or self.company_id != current.company_id:
+                raise ValidationError("El número y la compañía del asiento no pueden modificarse.")
             return super().save(*args, **kwargs)
 
     def _mark_posted(self):

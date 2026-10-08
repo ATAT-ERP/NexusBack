@@ -142,8 +142,8 @@ class JournalLine(models.Model):
 
     def clean(self):
         """
-        Valida el importe y la relación entre cuenta y asiento.
-        @version 1.1
+        Valida cuenta y asiento, permitiendo cuentas inactivas sólo en la reversión interna.
+        @version 1.2
         @author Agustin
         """
         errors = {}
@@ -153,7 +153,7 @@ class JournalLine(models.Model):
             account = self.account
             if account.company_id != self.journal_entry.company_id:
                 errors["account"] = "La cuenta debe pertenecer a la compañía del asiento."
-            if not account.is_active:
+            if not account.is_active and not getattr(self, "_allow_inactive_account", False):
                 errors["account"] = "La cuenta debe estar activa al incorporar el movimiento."
 
         if errors:

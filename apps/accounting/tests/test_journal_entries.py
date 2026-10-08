@@ -78,6 +78,108 @@ class JournalEntryTests(TestCase):
         self.assertEqual([entry.number for entry in entries], [1, 2, 3])
         self.assertEqual(other_entry.number, 1)
 
+    def test_save_preserves_number_and_company(self):
+        """
+        Rechaza cambiar la identidad numerada de un asiento existente.
+
+        @version 1.0
+        @author Agustin
+        """
+        entry = self.create_entry()
+        for field, value in (
+            ("number", 99),
+            ("company", self.other_company),
+            ("company_id", self.other_company.pk),
+        ):
+            with self.subTest(field=field):
+                setattr(entry, field, value)
+                with self.assertRaises(ValidationError):
+                    entry.save()
+                entry.refresh_from_db()
+                self.assertEqual(entry.number, 1)
+                self.assertEqual(entry.company_id, self.company.pk)
+
+    def test_new_instance_cannot_overwrite_an_existing_entry(self):
+        """
+        Impide que una instancia nueva con ID existente renumere el asiento.
+
+        @version 1.0
+        @author Agustin
+        """
+        entry = self.create_entry()
+        replacement = JournalEntry(
+            pk=entry.pk,
+            company=self.other_company,
+            accounting_date=entry.accounting_date,
+            description="Reemplazo",
+        )
+        with self.assertRaises(IntegrityError):
+            replacement.save()
+        entry.refresh_from_db()
+        self.assertEqual(entry.number, 1)
+        self.assertEqual(entry.company_id, self.company.pk)
+        self.assertEqual(entry.description, "Asiento de prueba")
+
+    def test_queryset_update_preserves_number_and_company(self):
+        """
+        Impide renumerar o trasladar borradores mediante update().
+
+        @version 1.0
+        @author Agustin
+        """
+        entry = self.create_entry()
+        for field, value in (
+            ("number", 99),
+            ("company", self.other_company),
+            ("company_id", self.other_company.pk),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaises(ValidationError):
+                    JournalEntry.objects.filter(pk=entry.pk).update(**{field: value})
+                entry.refresh_from_db()
+                self.assertEqual(entry.number, 1)
+                self.assertEqual(entry.company_id, self.company.pk)
+
+    def test_bulk_update_preserves_number_and_company(self):
+        """
+        Comprueba que bulk_update respete la protección del QuerySet.
+
+        @version 1.0
+        @author Agustin
+        """
+        entry = self.create_entry()
+        for field, value in (
+            ("number", 99),
+            ("company", self.other_company),
+            ("company_id", self.other_company.pk),
+        ):
+            with self.subTest(field=field):
+                setattr(entry, field, value)
+                with self.assertRaises(ValidationError):
+                    with transaction.atomic():
+                        JournalEntry.objects.bulk_update([entry], [field])
+                entry.refresh_from_db()
+                self.assertEqual(entry.number, 1)
+                self.assertEqual(entry.company_id, self.company.pk)
+
+    def test_draft_remains_editable_through_normal_orm_operations(self):
+        """
+        Conserva la edición de los campos permitidos del borrador.
+
+        @version 1.0
+        @author Agustin
+        """
+        entry = self.create_entry()
+        entry.description = "Edición individual"
+        entry.save()
+        JournalEntry.objects.filter(pk=entry.pk).update(description="Edición del QuerySet")
+        entry.refresh_from_db()
+        self.assertEqual(entry.description, "Edición del QuerySet")
+        entry.description = "Edición por lote"
+        JournalEntry.objects.bulk_update([entry], ["description"])
+        entry.refresh_from_db()
+        self.assertEqual(entry.description, "Edición por lote")
+
 
 class JournalLineTests(TestCase):
     """Verifica importes y referencias de los movimientos contables.

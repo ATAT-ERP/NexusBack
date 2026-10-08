@@ -25,7 +25,7 @@ El label de la aplicación Django es `accounting` (`apps.accounting`).
 | `code` | Código de la cuenta; único dentro de la Company. |
 | `name` | Nombre de la cuenta. |
 | `account_type` | `ASSET`, `LIABILITY`, `EQUITY`, `REVENUE` o `EXPENSE`. |
-| `is_active` | Las cuentas inactivas no pueden recibir movimientos nuevos. |
+| `is_active` | Las cuentas inactivas no reciben movimientos normales; pueden reutilizarse en una reversión interna. |
 | `created_at`, `updated_at` | Timestamps administrados por Django. |
 
 ### JournalEntry (`accounting_journal_entries`)
@@ -47,13 +47,16 @@ El label de la aplicación Django es `accounting` (`apps.accounting`).
 
 Restricciones: `number` es único por Company y `(company, source_type,
 source_id)` es único cuando `source_id` está informado.
+Una vez creado el asiento, `number` y `company` no pueden modificarse mediante
+`save()`, `update()` ni `bulk_update()`. La numeración se asigna exclusivamente
+durante la creación normal; `bulk_create()` no está soportado para asientos.
 
 ### JournalLine (`accounting_journal_lines`)
 
 | Campo | Descripción |
 | --- | --- |
 | `journal_entry` | Clave foránea al asiento; sus movimientos se eliminan en cascada. |
-| `account` | Cuenta de la misma Company que el asiento y activa al registrarla. |
+| `account` | Cuenta de la misma Company que el asiento; debe estar activa salvo en la reversión interna. |
 | `description` | Concepto del movimiento. |
 | `debit` | Importe del Debe; `0` cuando el movimiento es de Haber. |
 | `credit` | Importe del Haber; `0` cuando el movimiento es de Debe. |
@@ -152,6 +155,10 @@ se crean desde el ORM y los services del módulo.
   (importes intercambiados, `accounting_date` del día, `reversal_of` apuntando al
   original) y marca el original como `REVERSED`. Responde `200` con el asiento de
   reversión. Sólo acepta asientos `POSTED`.
+  La reversión reutiliza las cuentas originales aunque estén inactivas, sin
+  reactivarlas. Esta excepción pertenece al flujo interno de reversión:
+  los movimientos normales y `publish_journal_entry()` siguen exigiendo cuentas
+  activas; informar `reversal_of` por sí solo no habilita la excepción.
 
 ## Consultas contables
 
