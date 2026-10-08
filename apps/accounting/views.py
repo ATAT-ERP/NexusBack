@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Prefetch, Sum
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -60,6 +61,26 @@ class CompanyAccessMixin:
     authentication_classes = (SupabaseBearerAuthentication,)
     permission_classes = (IsAuthenticated,)
 
+    def handle_exception(self, error):
+        """
+        Devuelve sólo el identificador de los errores funcionales de Accounting.
+
+        @version 1.0
+        @author Agustin
+        """
+        if isinstance(error, APIValidationError):
+            codes = error.get_codes()
+            error_codes = codes.get("code", []) if isinstance(codes, dict) else codes
+            for code in (
+                "NEX-ACC-001",
+                "NEX-ACC-002",
+                "NEX-ACC-003",
+                "NEX-ACC-004",
+            ):
+                if isinstance(error_codes, list) and code in error_codes:
+                    return Response({"code": code}, status=status.HTTP_400_BAD_REQUEST)
+        return super().handle_exception(error)
+
     def get_company(self):
         """
         Obtiene la Company solicitada y exige membership del usuario.
@@ -85,6 +106,31 @@ class AccountAccessMixin(CompanyAccessMixin):
     """
 
     serializer_class = AccountSerializer
+
+    def handle_exception(self, error):
+        """
+        Traduce sólo la colisión de unicidad de Account a su error funcional.
+
+        @version 1.0
+        @author Agustin
+        """
+        if isinstance(error, IntegrityError):
+            cause = error.__cause__
+            constraint = getattr(getattr(cause, "diag", None), "constraint_name", None)
+            duplicate = constraint == "unique_account_company_code" or (
+                connection.vendor == "sqlite"
+                and str(cause) == (
+                    "UNIQUE constraint failed: accounting_accounts.company_id, "
+                    "accounting_accounts.code"
+                )
+            )
+            if not duplicate:
+                return super().handle_exception(error)
+            error = APIValidationError(
+                "El código de cuenta ya existe en la Company.",
+                code="NEX-ACC-001",
+            )
+        return super().handle_exception(error)
 
     def get_queryset(self):
         """
@@ -152,12 +198,13 @@ class AccountListCreateView(AccountAccessMixin, generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         """
-        Crea la cuenta en la Company autorizada de la URL.
+        Crea la cuenta en una transacción que revierte posibles colisiones de código.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
-        serializer.save(company=self.get_company())
+        with transaction.atomic():
+            serializer.save(company=self.get_company())
 
 
 class AccountDetailView(AccountAccessMixin, generics.RetrieveUpdateAPIView):
@@ -170,18 +217,18 @@ class AccountDetailView(AccountAccessMixin, generics.RetrieveUpdateAPIView):
 
     def perform_update(self, serializer):
         """
-        Traduce las restricciones del modelo a errores de validación de la API.
+        Identifica la validación histórica del modelo para su respuesta HTTP.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         try:
             serializer.save()
         except ValidationError as error:
-            raise APIValidationError(error.messages) from error
+            raise APIValidationError(error.messages, code="NEX-ACC-002") from error
 
 
-class JournalEntryPublishView(generics.GenericAPIView):
+class JournalEntryPublishView(CompanyAccessMixin, generics.GenericAPIView):
     """
     Publica un asiento borrador de una Company autorizada.
 
@@ -189,14 +236,11 @@ class JournalEntryPublishView(generics.GenericAPIView):
     @author Agustin
     """
 
-    authentication_classes = (SupabaseBearerAuthentication,)
-    permission_classes = (IsAuthenticated,)
-
     def post(self, request, company_id, pk):
         """
-        Ejecuta la publicación con las validaciones del dominio Accounting.
+        Ejecuta la publicación y asigna un código a sus rechazos contables.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         company = get_object_or_404(Company, pk=company_id)
@@ -206,14 +250,14 @@ class JournalEntryPublishView(generics.GenericAPIView):
         try:
             entry = publish_journal_entry(entry.pk)
         except ValidationError as error:
-            raise APIValidationError(error.messages) from error
+            raise APIValidationError(error.messages, code="NEX-ACC-003") from error
         return Response(
             {"id": entry.pk, "number": entry.number, "status": entry.status},
             status=status.HTTP_200_OK,
         )
 
 
-class JournalEntryReverseView(generics.GenericAPIView):
+class JournalEntryReverseView(CompanyAccessMixin, generics.GenericAPIView):
     """
     Revierte un asiento publicado de una Company autorizada.
 
@@ -221,14 +265,11 @@ class JournalEntryReverseView(generics.GenericAPIView):
     @author Agustin
     """
 
-    authentication_classes = (SupabaseBearerAuthentication,)
-    permission_classes = (IsAuthenticated,)
-
     def post(self, request, company_id, pk):
         """
-        Ejecuta la reversión con las validaciones del dominio Accounting.
+        Ejecuta la reversión y asigna un código a sus rechazos contables.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         company = get_object_or_404(Company, pk=company_id)
@@ -238,7 +279,7 @@ class JournalEntryReverseView(generics.GenericAPIView):
         try:
             reversal = reverse_journal_entry(entry.pk, user=request.user)
         except ValidationError as error:
-            raise APIValidationError(error.messages) from error
+            raise APIValidationError(error.messages, code="NEX-ACC-004") from error
         return Response(
             {"id": reversal.pk, "number": reversal.number, "status": reversal.status},
             status=status.HTTP_200_OK,

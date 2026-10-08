@@ -313,7 +313,7 @@ class JournalEntryReverseAccessTests(APITestCase):
     def test_draft_reversal_returns_validation_error(self):
         """Devuelve error de validación al intentar revertir un borrador.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         entry = self.create_entry(self.company)
@@ -321,3 +321,6 @@ class JournalEntryReverseAccessTests(APITestCase):
         response = self.client.post(self.reverse_url(self.company, entry))
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"code": "NEX-ACC-004"})
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatus.DRAFT)

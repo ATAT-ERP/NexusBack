@@ -30,7 +30,7 @@ class AccountSerializer(serializers.ModelSerializer):
         """
         Rechaza un código ya asignado a otra cuenta de la Company.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         company_id = self.context["view"].kwargs["company_id"]
@@ -39,7 +39,8 @@ class AccountSerializer(serializers.ModelSerializer):
             accounts = accounts.exclude(pk=self.instance.pk)
         if accounts.exists():
             raise serializers.ValidationError(
-                "Ya existe una cuenta con este código en la compañía."
+                "Ya existe una cuenta con este código en la compañía.",
+                code="NEX-ACC-001",
             )
         return value
 

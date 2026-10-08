@@ -490,3 +490,22 @@ class JournalEntryPublicationAccessTests(APITestCase):
         response = self.client.post(self.publish_url(self.company, entry))
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_publication_rejection_returns_only_its_functional_code(self):
+        """Identifica una publicación inválida sin exponer los detalles contables.
+
+        @version 1.0
+        @author Agustin
+        """
+        entry = self.create_entry(self.company)
+        account = Account.objects.create(
+            company=self.company, code="1", name="Caja", account_type=AccountType.ASSET
+        )
+        JournalLine.objects.create(
+            journal_entry=entry, account=account, description="Debe", debit=Decimal("10")
+        )
+        response = self.client.post(self.publish_url(self.company, entry))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"code": "NEX-ACC-003"})
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatus.DRAFT)

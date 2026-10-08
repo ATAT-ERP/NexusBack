@@ -1,6 +1,8 @@
 import uuid
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -55,6 +57,7 @@ class AccountTests(APITestCase):
         """
         response = self.client.post(self.list_url, {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(set(response.data), {"code", "name", "account_type"})
         self.assertIn("code", response.data)
         self.assertIn("name", response.data)
         self.assertIn("account_type", response.data)
@@ -75,10 +78,9 @@ class AccountTests(APITestCase):
         @author Agustin
         """
         anonymous_client = APIClient()
-        self.assertEqual(
-            anonymous_client.get(self.list_url).status_code,
-            status.HTTP_401_UNAUTHORIZED,
-        )
+        response = anonymous_client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(set(response.data), {"detail"})
         self.assertEqual(
             anonymous_client.post(
                 self.list_url,
@@ -92,7 +94,7 @@ class AccountTests(APITestCase):
         """
         Asigna la Company de la URL y evita códigos repetidos en ella.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         payload = {
@@ -107,7 +109,90 @@ class AccountTests(APITestCase):
 
         response = self.client.post(self.list_url, payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("code", response.data)
+        self.assertEqual(response.data, {"code": "NEX-ACC-001"})
+
+    def test_database_duplicate_returns_only_the_functional_code(self):
+        """Traduce una colisión posterior a validar sin dejar rota la transacción.
+
+        @version 1.0
+        @author Agustin
+        """
+        existing = self.create_account()
+        payload = {"code": existing.code, "name": "Caja", "account_type": AccountType.ASSET}
+        expected = {"code": "NEX-ACC-001"}
+        self.assertEqual(self.client.post(self.list_url, payload, format="json").data, expected)
+        account = self.create_account(code="1.1.02")
+        with patch(
+            "apps.accounting.serializers.account.AccountSerializer.validate_code",
+            side_effect=lambda value: value,
+        ):
+            for method, url, data in (
+                (self.client.post, self.list_url, payload),
+                (self.client.patch, f"{self.list_url}{account.pk}/", {"code": existing.code}),
+            ):
+                with self.subTest(method=method.__name__):
+                    response = method(url, data, format="json")
+                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                    self.assertEqual(response.data, expected)
+                    self.assertEqual(Account.objects.filter(company=self.company).count(), 2)
+        account.refresh_from_db()
+        self.assertEqual(account.code, "1.1.02")
+
+    def test_postgresql_duplicate_constraint_returns_the_same_error(self):
+        """Verifica el diagnóstico PostgreSQL simulado, sin probar concurrencia.
+
+        @version 1.0
+        @author Agustin
+        """
+        cause = Exception("duplicate key")
+        cause.diag = SimpleNamespace(constraint_name="unique_account_company_code")
+        error = IntegrityError("duplicate key")
+        error.__cause__ = cause
+        payload = {"code": "1.1.01", "name": "Caja", "account_type": AccountType.ASSET}
+        with patch(
+            "apps.accounting.serializers.account.AccountSerializer.create", side_effect=error
+        ):
+            response = self.client.post(self.list_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"code": "NEX-ACC-001"})
+        self.assertEqual(Account.objects.count(), 0)
+
+    def test_unrelated_integrity_errors_are_not_translated(self):
+        """Mantiene visibles los fallos de integridad ajenos al código de cuenta.
+
+        @version 1.0
+        @author Agustin
+        """
+        for cause in (
+            Exception("NOT NULL constraint failed: accounting_accounts.name"),
+            Exception("UNIQUE constraint failed: accounting_accounts.id"),
+            Exception("other constraint"),
+        ):
+            cause.diag = SimpleNamespace(constraint_name="other_constraint")
+            error = IntegrityError(str(cause))
+            error.__cause__ = cause
+            with self.subTest(cause=str(cause)), patch(
+                "apps.accounting.serializers.account.AccountSerializer.create",
+                side_effect=error,
+            ):
+                with self.assertRaises(IntegrityError):
+                    self.client.post(
+                        self.list_url,
+                        {"code": "1.1.01", "name": "Caja", "account_type": AccountType.ASSET},
+                        format="json",
+                    )
+            self.assertEqual(Account.objects.count(), 0)
+
+    def test_duplicate_returns_only_its_functional_code(self):
+        """El código funcional no expone detalles de validación al cliente.
+
+        @version 1.0
+        @author Agustin
+        """
+        account = self.create_account()
+        response = self.client.post(self.list_url, {"code": account.code}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"code": "NEX-ACC-001"})
 
     def test_same_code_is_allowed_for_different_companies(self):
         """
@@ -212,7 +297,9 @@ class AccountTests(APITestCase):
         )
         other_url = f"/api/accounting/companies/{self.other_company.pk}/accounts/"
         payload = {"code": "2.1.01", "name": "Deuda", "account_type": AccountType.LIABILITY}
-        self.assertEqual(self.client.get(other_url).status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(other_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(set(response.data), {"detail"})
         self.assertEqual(
             self.client.post(other_url, payload, format="json").status_code,
             status.HTTP_403_FORBIDDEN,
@@ -223,10 +310,9 @@ class AccountTests(APITestCase):
             self.client.patch(detail_url, {"name": "Ajena"}, format="json").status_code,
             status.HTTP_403_FORBIDDEN,
         )
-        self.assertEqual(
-            self.client.get(f"{self.list_url}{account.pk}/").status_code,
-            status.HTTP_404_NOT_FOUND,
-        )
+        response = self.client.get(f"{self.list_url}{account.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(set(response.data), {"detail"})
 
     def test_patch_cannot_update_another_company_account_by_id(self):
         """
@@ -276,7 +362,7 @@ class AccountTests(APITestCase):
         """
         Rechaza cambiar el código por otro ya usado en la Company.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         Account.objects.create(
@@ -297,7 +383,7 @@ class AccountTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("code", response.data)
+        self.assertEqual(response.data, {"code": "NEX-ACC-001"})
         account.refresh_from_db()
         self.assertEqual(account.code, "1.1.02")
 
@@ -518,7 +604,7 @@ class AccountTests(APITestCase):
     def test_api_rejects_historical_identity_change_and_allows_deactivation(self):
         """Devuelve 400 por cambios históricos y permite is_active por API.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         account = self.create_account()
@@ -527,7 +613,7 @@ class AccountTests(APITestCase):
 
         response = self.client.patch(url, {"name": "Caja nueva"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No se pueden cambiar", str(response.data))
+        self.assertEqual(response.data, {"code": "NEX-ACC-002"})
 
         response = self.client.patch(url, {"is_active": False}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

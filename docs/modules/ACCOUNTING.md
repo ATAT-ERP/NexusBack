@@ -121,6 +121,7 @@ apps/accounting/
 GET    /api/accounting/companies/<uuid>/accounts/
 POST   /api/accounting/companies/<uuid>/accounts/
 GET    /api/accounting/companies/<uuid>/accounts/<id>/
+PUT    /api/accounting/companies/<uuid>/accounts/<id>/
 PATCH  /api/accounting/companies/<uuid>/accounts/<id>/
 
 POST   /api/accounting/companies/<uuid>/journal-entries/<id>/publish/
@@ -145,10 +146,17 @@ se crean desde el ORM y los services del módulo.
 - `GET .../accounts/` lista las cuentas ordenadas por `code`; acepta los filtros
   opcionales `account_type` e `is_active`.
 - `POST .../accounts/` crea una cuenta dentro de la Company de la URL. El
-  `code` debe ser único por Company (`400` si se repite); el `company` enviado en
+  `code` debe ser único por Company (`400`, `NEX-ACC-001` si se repite, incluso
+  ante una colisión de unicidad posterior a la validación); el `company` enviado en
   el body se ignora.
-- `GET/PATCH .../accounts/<id>/` consulta o actualiza una cuenta. No existe
+- `GET/PUT/PATCH .../accounts/<id>/` consulta o actualiza una cuenta. `PUT` exige
+  los campos `code`, `name` y `account_type`; `PATCH` permite enviar sólo los campos
+  que se quieren cambiar. Omitir `is_active` en cualquiera de las actualizaciones
+  conserva su valor actual. No existe
   `DELETE` (`405`); la baja se hace con `is_active = false`.
+  Cambiar `code`, `name` o `account_type` de una cuenta con movimientos en asientos
+  `POSTED` o `REVERSED` devuelve `400`, `NEX-ACC-002`. Las cuentas usadas sólo en
+  borradores siguen siendo editables y `is_active` permanece modificable.
 
 ### Publicación y reversión de asientos
 
@@ -299,9 +307,37 @@ decimales y `balance` es `total_debit - total_credit`.
 
 ## Errores
 
-El módulo no tiene códigos `NEX-*` propios: responde con los errores estándar
-de DRF (`400` validación, `401` sin Bearer, `403` sin membership, `404` recurso
-inexistente o fuera de la Company, `405` método no permitido).
+Accounting expone cuatro códigos funcionales, registrados en
+[ERROR_CODES.md](../ERROR_CODES.md), todos con HTTP `400`:
+
+| Código | Situación |
+| --- | --- |
+| `NEX-ACC-001` | Código de cuenta duplicado dentro de la Company, al crear o actualizar. |
+| `NEX-ACC-002` | Cambio prohibido de `code`, `name` o `account_type` de una cuenta con historial `POSTED` o `REVERSED`. |
+| `NEX-ACC-003` | Publicación rechazada por las reglas contables del service. |
+| `NEX-ACC-004` | Reversión rechazada por las reglas contables del service. |
+
+En estos cuatro casos la API devuelve únicamente el código identificador y el
+estado `400`; los motivos permanecen en el catálogo interno. Por ejemplo:
+
+```json
+{
+  "code": "NEX-ACC-003"
+}
+```
+
+Los demás errores de serializer y filtros conservan el formato estándar de DRF
+y HTTP `400`. Los errores comunes siguen los mecanismos existentes: `401` sin
+Bearer o con autenticación inválida, `403` sin membership, `404` recurso
+inexistente o fuera de la Company autorizada y `405` método no permitido.
+Sin Bearer se devuelve el `detail` nativo; un Bearer mal formado o inválido puede
+devolver el código compartido `NEX-USR-010`. Los errores de perfil local de la
+autenticación conservan los códigos y estados del módulo Users.
+
+Una consulta válida sin registros devuelve `200` y una colección vacía. Una
+reversión válida puede reutilizar cuentas originales inactivas: esa situación
+no es un error. Los fallos internos inesperados no se convierten en estos códigos
+funcionales.
 
 ## Pendiente / fuera de alcance actual
 
