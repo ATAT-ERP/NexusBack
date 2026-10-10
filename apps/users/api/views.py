@@ -2,11 +2,13 @@ import logging
 
 import httpx
 
+from django.db import DatabaseError
 from django.db.models import Q
 from django.http import Http404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from supabase_auth.errors import AuthApiError
@@ -92,6 +94,7 @@ class UserViewSet(
     queryset = User.objects.all()
     serializer_class = UserSerializer
     authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
 
     def initial(self, request, *args, **kwargs):
         """
@@ -159,6 +162,27 @@ class UserViewSet(
             | Q(email__icontains=query)
         )
         return Response(self.get_serializer(users, many=True).data)
+
+    @action(detail=False, methods=["get", "patch"], url_path="me")
+    def me(self, request):
+        """
+        Consulta o actualiza el perfil asociado al Bearer autenticado.
+
+        @version 1.0
+        @param request Solicitud autenticada del usuario actual.
+        @author Agustin
+        """
+        if request.method == "GET":
+            return Response(self.get_serializer(request.user).data)
+
+        serializer = self.get_serializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="system-admin")
     def system_admin(self, request, pk=None):
@@ -262,7 +286,7 @@ class RegisterView(APIView):
         """
         Registra una cuenta y crea su perfil local.
 
-        @version 1.0
+        @version 1.1
         @param request Solicitud con email y contraseña del nuevo usuario.
         @author Agustin
         """
@@ -278,7 +302,9 @@ class RegisterView(APIView):
             )
 
         try:
-            user_id = authentication.register(**serializer.validated_data).user.id
+            auth_user = authentication.register(**serializer.validated_data).user
+            if not auth_user:
+                raise ValueError("Supabase Auth no devolvió ningún usuario.")
         except Exception as error:
             if isinstance(error, AuthApiError) and error.status == 429:
                 return _auth_error(
@@ -298,11 +324,16 @@ class RegisterView(APIView):
             )
 
         try:
-            user = User.objects.create(
-                id=user_id,
-                email=serializer.validated_data["email"],
+            user = authentication.sync_user_profile(auth_user)
+        except DatabaseError:
+            return Response(
+                {
+                    "code": "NEX-USR-006",
+                    "message": "No fue posible completar el registro.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        except Exception:
+        if user is None:
             return Response(
                 {
                     "code": "NEX-USR-006",
@@ -323,6 +354,7 @@ class LogoutView(APIView):
     """
 
     authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
 
     def post(self, request):
         """
@@ -355,6 +387,7 @@ class ChangePasswordView(APIView):
     """
 
     authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
 
     def post(self, request):
         """
@@ -462,7 +495,7 @@ class LoginView(APIView):
         """
         Inicia sesión y devuelve la sesión válida del usuario.
 
-        @version 1.0
+        @version 1.1
         @param request Solicitud con email y contraseña.
         @author Agustin
         """
@@ -522,7 +555,16 @@ class LoginView(APIView):
                 "login",
             )
 
-        user = User.objects.filter(id=user_id).first()
+        try:
+            user = authentication.sync_user_profile(auth_user)
+        except DatabaseError:
+            return Response(
+                {
+                    "code": "NEX-USR-012",
+                    "message": "Error interno al validar el perfil del usuario autenticado.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         if user is None:
             return Response(
                 {

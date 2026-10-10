@@ -25,7 +25,7 @@ secretos, Supabase service keys ni credenciales completas.
 | Código | Caso interno | HTTP | Mensaje público |
 | --- | --- | --- | --- |
 | `NEX-AUTH-001` | Autenticación ausente o inválida. No distingue públicamente entre token inexistente, inválido o vencido. | `401 Unauthorized` | `No fue posible autenticar la solicitud.` |
-| `NEX-USR-001` | La identidad autenticada por Supabase no tiene un perfil local válido en NexusBack. | `403 Forbidden` | `No fue posible autorizar la operación.` |
+| `NEX-USR-001` | La identidad autenticada no puede vincularse a un perfil local existente. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-USR-002` | El perfil local existe pero `is_active = False`. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-USR-003` | Los datos de entrada enviados al módulo `users` no superan la validación. | `400 Bad Request` | `Los datos enviados no son válidos.` |
 | `NEX-USR-004` | Se solicitó un usuario que no existe. | `404 Not Found` | `Usuario no encontrado.` |

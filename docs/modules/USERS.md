@@ -72,9 +72,9 @@ NexusBack
       ↓
 Supabase Auth
       ↓
-UUID
+identidad + UUID
       ↓
-public.users
+public.users (perfil local mínimo)
 ```
 
 El login sigue este flujo:
@@ -88,9 +88,9 @@ NexusBack
       ↓
 Supabase Auth
       ↓
-sesión + UUID
+sesión + identidad verificada
       ↓
-public.users
+sincronización del perfil local por UUID
       ↓
 validación de perfil activo
       ↓
@@ -102,6 +102,8 @@ tokens al cliente
 ```text
 GET    /api/users/
 GET    /api/users/search/?q=valor
+GET    /api/users/me/
+PATCH  /api/users/me/
 POST   /api/users/register/
 POST   /api/users/login/
 POST   /api/users/logout/
@@ -117,14 +119,34 @@ POST   /api/users/<uuid>/deactivate/
 
 `DELETE` no está implementado actualmente.
 
-La creación directa de perfiles mediante `POST /api/users/` no está disponible:
-todo usuario nuevo debe pasar por `POST /api/users/register/`. En el CRUD
-normal, `id`, `email`, `is_active` e `is_system_admin` son de solo lectura. Un
-futuro cambio de email deberá actualizar primero Supabase Auth y luego
-`public.users`.
+La creación directa de perfiles mediante `POST /api/users/` no está disponible.
+El registro normal usa `POST /api/users/register/`; las identidades creadas
+directamente en Supabase Auth se sincronizan tras autenticar un token o iniciar
+sesión. El perfil propio se consulta con `GET /api/users/me/` y se actualiza con
+`PATCH /api/users/me/`;
+la identidad se obtiene del Bearer y no de un UUID enviado por el cliente. Sólo
+se pueden modificar `first_name` y `last_name`. Las escrituras rechazan `id`,
+`email`, `avatar_path`, `is_active`, `is_system_admin` y cualquier otro campo.
+Los campos personales omitidos en un PATCH conservan su valor. Los endpoints
+por UUID existentes se mantienen para compatibilidad y administración; un
+usuario normal sólo accede a su propio UUID. Un futuro cambio de email deberá
+actualizar primero Supabase Auth y luego `public.users`.
 
 La búsqueda consulta únicamente `public.users` por nombre, apellido o email,
 sin distinguir mayúsculas y minúsculas.
+
+### Contrato del perfil propio
+
+`GET /api/users/me/` responde con `id`, `email`, `first_name`, `last_name`,
+`avatar_path`, `is_active` e `is_system_admin`. `PATCH /api/users/me/` acepta,
+por ejemplo, `{"first_name":"Ana","last_name":"Pérez"}` y devuelve el
+perfil actualizado con el mismo serializer. Los campos de perfil que no se
+incluyen en el PATCH conservan sus valores.
+
+Un dato inválido o un campo protegido devuelve `400 Bad Request` con el formato
+`{"code":"NEX-USR-003","message":"Los datos enviados no son válidos.","errors":{...}}`.
+La falta de Bearer devuelve `401`; la falta de permisos o un perfil inactivo
+devuelve `403`.
 
 ## Operaciones administrativas
 
@@ -164,11 +186,24 @@ verdad del catálogo es [docs/ERROR_CODES.md](../ERROR_CODES.md).
 - El access JWT emitido puede seguir siendo válido hasta su expiración después
   del logout. El cliente debe descartar sus access y refresh tokens tras el 204.
 - Los demás endpoints de `users` requieren `Authorization: Bearer <access_token>`.
-- NexusBack valida el Bearer ante Supabase Auth, busca el UUID en `public.users`
-  y rechaza perfiles inexistentes o inactivos.
+- NexusBack valida el Bearer ante Supabase Auth y crea un perfil local mínimo
+  cuando la identidad verificada todavía no tiene uno. La sincronización usa el
+  UUID y email devueltos por Supabase, no metadata del cliente, y no concede
+  privilegios administrativos. Si el email ya pertenece a otro UUID local, la
+  identidad se rechaza sin vincular perfiles.
+- El login sincroniza perfiles ausentes a partir de la identidad devuelta por
+  Supabase Auth. El registro crea el perfil desde la respuesta de Supabase.
+  Los perfiles nuevos usan los defaults del modelo: activos y sin privilegios
+  de administrador.
+- Si Supabase crea una cuenta pero falla la creación del perfil local, el
+  registro responde con un error interno; la cuenta remota no se revierte.
+- Un perfil con `is_active = False` no puede iniciar sesión ni operar con un
+  Bearer válido. Un usuario inactivo no puede reactivarse a sí mismo.
 - Un usuario normal sólo puede consultar y editar su propio perfil.
 - Un administrador global puede listar, buscar, consultar y editar cualquier
-  perfil. También puede activar, desactivar y cambiar `is_system_admin` de otros
+  perfil. El listado y la búsqueda son administrativos y no están disponibles
+  para incorporar colaboradores; Company mantiene esa operación por correo.
+  También puede activar, desactivar y cambiar `is_system_admin` de otros
   usuarios mediante las acciones administrativas explícitas.
 - Un administrador no puede desactivarse ni quitarse su propio privilegio.
 - Supabase PostgreSQL está conectado y la migración inicial está aplicada.
