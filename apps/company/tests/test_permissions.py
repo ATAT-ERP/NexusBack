@@ -43,6 +43,8 @@ class CompanyAccessTests(APITestCase):
             self.list_url,
             self.search_url,
             f"/api/companies/{self.company.id}/",
+            f"/api/companies/{self.company.id}/members/",
+            f"/api/companies/{self.company.id}/members/{self.member.id}/",
         )
         requests = (
             ("get", urls[0], None),
@@ -52,6 +54,10 @@ class CompanyAccessTests(APITestCase):
             ("put", urls[2], {"name": "Editada"}),
             ("patch", urls[2], {"name": "Editada"}),
             ("delete", urls[2], None),
+            ("get", urls[3], None),
+            ("post", urls[3], {"user_id": str(self.stranger.id), "role": "member"}),
+            ("patch", urls[4], {"role": "owner"}),
+            ("delete", urls[4], None),
         )
 
         for method, url, data in requests:

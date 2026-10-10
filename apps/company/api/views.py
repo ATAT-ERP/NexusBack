@@ -1,15 +1,22 @@
 import re
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from rest_framework import generics, serializers, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from apps.company.api.serializers import CompanySerializer
+from apps.company.api.serializers import (
+    CompanyMemberCreateSerializer,
+    CompanyMemberSerializer,
+    CompanySerializer,
+    CompanyMemberRoleSerializer,
+)
 from apps.company.models import Company, CompanyMember, CompanyRole, normalize_tax_id
 from apps.users.authentication import SupabaseBearerAuthentication
+from apps.users.models import User
 
 
 def filter_company_queryset(queryset, query_params):
@@ -222,3 +229,235 @@ class CompanyDetailView(generics.RetrieveUpdateDestroyAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return super().handle_exception(error)
+
+
+class CompanyMembersBaseView(APIView):
+    """
+    Comparte autenticación, acceso y errores de las operaciones de membresía.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
+
+    def get_company(self, company_id, lock=False):
+        """
+        Obtiene una Company visible para el usuario y opcionalmente la bloquea.
+
+        @version 1.0
+        @author Agustin
+        """
+        if lock:
+            company = Company.objects.select_for_update().filter(pk=company_id).first()
+        else:
+            company = Company.objects.filter(
+                pk=company_id,
+                memberships__user=self.request.user,
+            ).first()
+
+        if company is None:
+            raise NotFound(
+                {"code": "NEX-COM-004", "message": "Compañía no encontrada."}
+            )
+        if lock and not CompanyMember.objects.filter(
+            company=company,
+            user=self.request.user,
+        ).exists():
+            raise NotFound(
+                {"code": "NEX-COM-004", "message": "Compañía no encontrada."}
+            )
+        return company
+
+    def require_owner(self, company):
+        """
+        Exige el rol owner para administrar miembros de una Company.
+
+        @version 1.0
+        @author Agustin
+        """
+        if not CompanyMember.objects.filter(
+            company=company,
+            user=self.request.user,
+            role__code="owner",
+        ).exists():
+            raise PermissionDenied()
+        if not company.is_active:
+            raise PermissionDenied()
+
+    def handle_exception(self, error):
+        """
+        Conserva los códigos públicos existentes de Company.
+
+        @version 1.0
+        @author Agustin
+        """
+        if isinstance(error, serializers.ValidationError):
+            return Response(
+                {
+                    "code": "NEX-COM-001",
+                    "message": "Los datos enviados no son válidos.",
+                    "errors": error.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().handle_exception(error)
+
+
+class CompanyMembersView(CompanyMembersBaseView):
+    """
+    Consulta y agrega usuarios a una Company.
+
+    @version 1.1
+    @author Agustin
+    """
+
+    def get(self, request, id):
+        """
+        Lista miembros con sus datos de identificación y rol.
+
+        @version 1.0
+        @author Agustin
+        """
+        company = self.get_company(id)
+        memberships = CompanyMember.objects.filter(company=company).select_related(
+            "user", "role"
+        )
+        return Response(CompanyMemberSerializer(memberships, many=True).data)
+
+    def post(self, request, id):
+        """
+        Asocia un usuario existente por UUID o correo con un rol registrado.
+
+        @version 1.1
+        @author Agustin
+        """
+        try:
+            with transaction.atomic():
+                company = self.get_company(id, lock=True)
+                self.require_owner(company)
+                serializer = CompanyMemberCreateSerializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                data = serializer.validated_data
+                identifier_field = "email" if "email" in data else "user_id"
+                if identifier_field == "email":
+                    candidates = list(
+                        User.objects.filter(email__iexact=data["email"])
+                        .order_by("pk")[:2]
+                    )
+                    user = candidates[0] if len(candidates) == 1 else None
+                else:
+                    user = User.objects.filter(pk=data["user_id"]).first()
+
+                if (
+                    user is None
+                    or not user.is_active
+                    or CompanyMember.objects.filter(
+                        company=company,
+                        user=user,
+                    ).exists()
+                ):
+                    raise serializers.ValidationError(
+                        {identifier_field: "No se pudo asociar el usuario."}
+                    )
+                membership = CompanyMember.objects.create(
+                    company=company,
+                    user=user,
+                    role=data["role"],
+                )
+                membership = CompanyMember.objects.select_related(
+                    "user", "role"
+                ).get(pk=membership.pk)
+        except IntegrityError as error:
+            identifier_field = (
+                "email" if "email" in request.data else "user_id"
+            )
+            raise serializers.ValidationError(
+                {identifier_field: "No se pudo asociar el usuario."}
+            ) from error
+
+        return Response(
+            CompanyMemberSerializer(membership).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CompanyMemberDetailView(CompanyMembersBaseView):
+    """
+    Cambia el rol o desvincula un usuario de una Company.
+
+    @version 1.0
+    @author Agustin
+    """
+
+    def patch(self, request, id, user_id):
+        """
+        Cambia el rol de un miembro sin dejar la Company sin owner.
+
+        @version 1.0
+        @author Agustin
+        """
+        with transaction.atomic():
+            company = self.get_company(id, lock=True)
+            self.require_owner(company)
+            if request.user.id == user_id:
+                raise PermissionDenied()
+
+            serializer = CompanyMemberRoleSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            membership = CompanyMember.objects.filter(
+                company=company,
+                user_id=user_id,
+            ).select_related("user", "role").first()
+            if membership is None:
+                raise NotFound(
+                    {"code": "NEX-COM-004", "message": "Compañía no encontrada."}
+                )
+
+            role = serializer.validated_data["role"]
+            if membership.role_id != role.id:
+                if membership.role.code == "owner" and role.code != "owner":
+                    owners = CompanyMember.objects.filter(
+                        company=company,
+                        role__code="owner",
+                    ).count()
+                    if owners == 1:
+                        raise serializers.ValidationError(
+                            {"role": "La compañía debe conservar al menos un owner."}
+                        )
+                membership.role = role
+                membership.save(update_fields=["role"])
+
+        return Response(CompanyMemberSerializer(membership).data)
+
+    def delete(self, request, id, user_id):
+        """
+        Desvincula un miembro sin eliminar su usuario ni otros accesos.
+
+        @version 1.0
+        @author Agustin
+        """
+        with transaction.atomic():
+            company = self.get_company(id, lock=True)
+            self.require_owner(company)
+            membership = CompanyMember.objects.filter(
+                company=company,
+                user_id=user_id,
+            ).select_related("role").first()
+            if membership is None:
+                raise NotFound(
+                    {"code": "NEX-COM-004", "message": "Compañía no encontrada."}
+                )
+            if membership.role.code == "owner":
+                owners = CompanyMember.objects.filter(
+                    company=company,
+                    role__code="owner",
+                ).count()
+                if owners == 1:
+                    raise serializers.ValidationError(
+                        {"user_id": "La compañía debe conservar al menos un owner."}
+                    )
+            membership.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
