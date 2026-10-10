@@ -27,3 +27,9 @@
 - Para crear o modificar funciones, métodos o lógica dentro de código existente, incluidos correcciones, refactors y extensiones, usá `.agents/skills/backend-code/SKILL.md`.
 - Para crear o estructurar un módulo nuevo del backend, usá `.agents/skills/backend-module/SKILL.md`.
 - Para crear, modificar, corregir o revisar un endpoint HTTP, usá `.agents/skills/backend-endpoint/SKILL.md`.
+- Al implementar cambios funcionales o revisar pruebas, usá `.agents/skills/nexusback-tests/SKILL.md` para seleccionar, ejecutar e informar los tests pertinentes.
+
+## Pruebas de cambios funcionales
+
+- Al implementar, corregir o refactorizar una funcionalidad del backend, revisá sus tests existentes. Agregá o actualizá casos si cambia el comportamiento y la tarea lo permite; ejecutá los tests específicos y el módulo completo cuando corresponda, siguiendo `nexusback-tests`. Para cambios importantes o antes de integrar una rama, ejecutá también la suite completa. Informá resultados reales y no consideres exitosas pruebas que no llegaron a ejecutarse.
+- Los tests nuevos deben agruparse por funcionalidad, con nombres claros y convenciones Django/DRF. Comprobá comportamientos relevantes y autorización cuando haya datos de usuarios o Companies; reutilizá helpers sólo cuando reduzcan duplicación y evitá pruebas redundantes o cobertura artificial. No exijas tests nuevos para cambios sólo documentales o de formato.

@@ -28,37 +28,18 @@ docker compose up --build
 
 La API queda disponible en `http://localhost:8000`.
 
-## Ejecución local
+## Pruebas
 
-Cree el entorno virtual:
-
-```powershell
-python -m venv .venv
-```
-
-Active el entorno:
+Con Docker Desktop iniciado, use `compose.test.yaml` desde la raíz del repositorio. Reutiliza el `Dockerfile`, instala `requirements.txt` en la imagen y espera a que el PostgreSQL de pruebas esté listo. Este servicio no publica su puerto; la configuración de Django ignora `.env`, usa valores ficticios para Supabase y se conecta sólo a `test-db`.
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
+docker compose -f compose.test.yaml run --build --rm tests python manage.py test apps.company.tests.test_create --settings=config.test_settings --noinput
+docker compose -f compose.test.yaml run --build --rm tests python manage.py test apps.company --settings=config.test_settings --noinput
+docker compose -f compose.test.yaml run --build --rm tests
+docker compose -f compose.test.yaml down -v
 ```
 
-Instale las dependencias:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Aplique las migraciones:
-
-```powershell
-python manage.py migrate
-```
-
-Inicie el servidor:
-
-```powershell
-python manage.py runserver
-```
+Puede agregar `.CompanyCreateTests` o `.CompanyCreateTests.test_create_individual_without_tax_info` a la etiqueta del primer comando para seleccionar una clase o método. Para pedirle a Codex que elija las pruebas relacionadas con un cambio, solicite `Usá $nexusback-tests para probar estos cambios`.
 
 ## Documentación
 

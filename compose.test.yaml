@@ -1,0 +1,27 @@
+name: nexusback-tests
+
+services:
+  test-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nexusback_tests
+      POSTGRES_USER: nexusback_tests
+      POSTGRES_PASSWORD: nexusback-tests-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexusback_tests -d nexusback_tests"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      NEXUS_TEST_DB_NAME: nexusback_tests
+      NEXUS_TEST_DB_USER: nexusback_tests
+      NEXUS_TEST_DB_PASSWORD: nexusback-tests-only
+    command: python manage.py test --settings=config.test_settings --noinput
