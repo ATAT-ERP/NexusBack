@@ -56,17 +56,30 @@ apps/company/
 ## Endpoints actuales
 
 ```text
+GET   /api/companies/?is_active=true|false|all
 POST  /api/companies/
 GET   /api/companies/search/?q=...
+GET   /api/companies/{id}/
+PUT   /api/companies/{id}/
+PATCH /api/companies/{id}/
+DELETE /api/companies/{id}/
 ```
 
-Ningún endpoint de `company` exige autenticación en la versión actual. No existen
-todavía operaciones de detalle, edición ni de activar/desactivar compañías.
+Todos los endpoints requieren autenticación Bearer mediante
+`SupabaseBearerAuthentication`. El usuario sólo puede consultar Companies donde
+tenga una membresía `CompanyMember`. El detalle de una Company ajena responde
+`404` para no revelar si existe.
+
+El listado se limita a las Companies del usuario. `is_active` conserva sus
+valores: `true` (predeterminado), `false` y `all`. La búsqueda por nombre, razón
+social o CUIT también se limita a sus membresías y puede encontrar Companies
+activas e inactivas.
 
 ### Alta (POST /api/companies/)
 
 Registra una nueva compañía. Responde `201 Created` con el cuerpo de la compañía
-creada (incluye su `id`), o `400 Bad Request` cuando falla la validación.
+creada (incluye su `id`) y crea una membresía `owner` para el usuario que la
+registró. Responde `400 Bad Request` cuando falla la validación.
 
 #### Path
 
@@ -160,6 +173,20 @@ Localiza compañías por nombre, razón social o CUIT:
 - una consulta `q` ausente o vacía se maneja de forma controlada devolviendo una
   colección vacía (`200`, `[]`).
 
+### Detalle, edición y baja lógica
+
+`GET /api/companies/{id}/` permite consultar una Company activa o inactiva a sus
+miembros. `PUT` y `PATCH` sólo están disponibles para el rol `owner` y mientras
+la Company permanezca activa. `DELETE` aplica la baja lógica (`is_active =
+False`) y también requiere `owner`; conserva los datos y las membresías.
+
+Un usuario `member` puede consultar y buscar Companies a las que pertenece, pero
+recibe `403 Forbidden` al intentar editarlas o darlas de baja. Las operaciones
+de escritura sobre una Company inactiva también responden `403`. Las respuestas
+de validación conservan `NEX-COM-001`; un UUID inexistente o ajeno responde
+`404` con `NEX-COM-004`. La autenticación ausente o inválida responde `401` con
+el error estándar de Bearer.
+
 ## Criterios de diseño
 
 - La migración puede ejecutarse correctamente contra PostgreSQL.
@@ -167,5 +194,5 @@ Localiza compañías por nombre, razón social o CUIT:
   social).
 - El modelo diferencia actividades individuales de organizaciones mediante
   `type`.
-- La baja futura se resuelve mediante `is_active` sin eliminar registros:
-  desactivar (`is_active = False`) da de baja la compañía conservando la fila.
+- La baja lógica con `is_active` conserva la fila, las membresías y las
+  relaciones existentes.

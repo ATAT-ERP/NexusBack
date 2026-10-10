@@ -3,6 +3,7 @@ import re
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import generics, serializers, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -10,26 +11,18 @@ from apps.company.api.serializers import CompanySerializer
 from apps.company.models import Company, CompanyMember, CompanyRole, normalize_tax_id
 from apps.users.authentication import SupabaseBearerAuthentication
 
+
 class CompanyListView(generics.ListCreateAPIView):
     """
     Lista compañías registradas y permite dar de alta una nueva.
 
-    @version 1.0
-    @author Antonio
-    @author Uziel
+    @version 2.0
+    @author Agustin, Antonio, Uziel
     """
 
     serializer_class = CompanySerializer
-
-    def get_authenticators(self):
-        if self.request.method == "POST":
-            return [SupabaseBearerAuthentication()]
-        return []
-
-    def get_permissions(self):
-        if self.request.method == "POST":
-            return [IsAuthenticated()]
-        return super().get_permissions()
+    authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
 
     def perform_create(self, serializer):
         """
@@ -49,21 +42,23 @@ class CompanyListView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         """
-        Retorna compañías filtradas por estado. Por defecto solo activas.
+        Retorna compañías del usuario filtradas por estado. Por defecto solo activas.
 
-        @version 1.0
+        @version 1.1
         @author Uziel
         """
         is_active = self.request.query_params.get("is_active", "true").lower()
 
+        companies = Company.objects.filter(memberships__user=self.request.user)
+
         if is_active == "all":
-            return Company.objects.all()
+            return companies.distinct()
 
         if is_active == "false":
-            return Company.objects.filter(is_active=False)
+            return companies.filter(is_active=False).distinct()
 
         # Caso por defecto: solo activas
-        return Company.objects.filter(is_active=True)
+        return companies.filter(is_active=True).distinct()
 
     def handle_exception(self, error):
         if isinstance(error, serializers.ValidationError):
@@ -82,11 +77,13 @@ class CompanySearchView(generics.ListAPIView):
     """
     Búsqueda de compañías por nombre, razón social o CUIT.
 
-    @version 1.0
+    @version 2.0
     @author Antonio
     """
 
     serializer_class = CompanySerializer
+    authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
         raw_query = self.request.query_params.get("q", "")
@@ -95,12 +92,17 @@ class CompanySearchView(generics.ListAPIView):
             return Company.objects.none()
 
         queryset = Company.objects.filter(
+            memberships__user=self.request.user,
+        ).filter(
             Q(name__icontains=query) | Q(legal_name__icontains=query)
         )
 
         normalized = normalize_tax_id(query)
         if normalized and normalized.isdigit():
-            queryset = queryset | Company.objects.filter(tax_id=normalized)
+            queryset = queryset | Company.objects.filter(
+                memberships__user=self.request.user,
+                tax_id=normalized,
+            )
 
         return queryset.distinct()
 
@@ -109,16 +111,47 @@ class CompanyDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Detalle, actualización parcial/total y baja lógica de una compañía.
 
-    @version 1.0
-    @author Uziel
+    @version 2.0
+    @author Uziel, Agustin
     """
 
-    queryset = Company.objects.all()
     lookup_field = "id"
-
     serializer_class = CompanySerializer
+    authentication_classes = (SupabaseBearerAuthentication,)
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        """Limita el acceso a compañías con membresía del usuario autenticado.
+
+        @version 1.0
+        @author Agustin
+        """
+        return Company.objects.filter(memberships__user=self.request.user).distinct()
+
+    def get_object(self):
+        """Exige owner y Company activa para las operaciones de escritura.
+
+        @version 1.0
+        @author Agustin
+        """
+        company = super().get_object()
+        if self.request.method in ("PUT", "PATCH", "DELETE"):
+            is_owner = CompanyMember.objects.filter(
+                user=self.request.user,
+                company=company,
+                role__code="owner",
+            ).exists()
+            if not is_owner or not company.is_active:
+                raise PermissionDenied()
+        return company
 
     def perform_destroy(self, instance):
+        """
+        Desactiva la compañía conservando sus relaciones y datos.
+
+        @version 1.0
+        @author Agustin
+        """
         instance.is_active = False
         instance.save()
 

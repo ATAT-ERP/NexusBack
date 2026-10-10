@@ -169,6 +169,20 @@ class ExcelEndpointTests(TestCase):
         )
 
     @patch("apps.cloud.files.api.views.storage_client")
+    def test_reads_historical_workbook_from_an_inactive_company(self, storage_client):
+        self.company.is_active = False
+        self.company.save(update_fields=["is_active"])
+        storage_client.storage.from_().download.return_value = self.workbook
+
+        response = self.client.get(self.sheets_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {"sheets": ["Clientes", "Ventas"]})
+        storage_client.storage.from_().download.assert_called_once_with(
+            self.file.storage_key
+        )
+
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_reads_values_and_json_compatible_dates_from_a_sheet(self, storage_client):
         storage_client.storage.from_().download.return_value = self.workbook
 
@@ -272,8 +286,34 @@ class ExcelEndpointTests(TestCase):
         other_file = self.create_file(company=other_company)
 
         response = self.client.get(f"/api/cloud/files/{other_file.id}/sheets/")
+        missing = self.client.get(f"/api/cloud/files/{uuid.uuid4()}/sheets/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data,
+            {"code": "NEX-DOC-002", "message": "Documento no encontrado."},
+        )
+        self.assertEqual(response.data, missing.data)
+        storage_client.storage.from_.assert_not_called()
+
+    @patch("apps.cloud.files.api.views.storage_client")
+    def test_sheet_values_hide_documents_without_membership(self, storage_client):
+        other_company = Company.objects.create(name="Otra compañía")
+        other_file = self.create_file(company=other_company)
+
+        response = self.client.get(
+            f"/api/cloud/files/{other_file.id}/sheets/Clientes/"
+        )
+        missing = self.client.get(
+            f"/api/cloud/files/{uuid.uuid4()}/sheets/Clientes/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data,
+            {"code": "NEX-DOC-002", "message": "Documento no encontrado."},
+        )
+        self.assertEqual(response.data, missing.data)
         storage_client.storage.from_.assert_not_called()
 
     def test_requires_authentication(self):

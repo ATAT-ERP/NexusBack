@@ -1,7 +1,6 @@
 from django.conf import settings
 from rest_framework import serializers
 
-from apps.company.models import Company
 from apps.cloud.models import File
 
 
@@ -52,14 +51,11 @@ class FileCreateSerializer(serializers.ModelSerializer):
     """
     Valida los datos necesarios para crear un archivo desde un archivo recibido.
 
-    @version 1.0
+    @version 1.1
     @author Agustin
     """
 
-    company_id = serializers.PrimaryKeyRelatedField(
-        source="company",
-        queryset=Company.objects.all(),
-    )
+    company_id = serializers.UUIDField()
     file = serializers.FileField(write_only=True, allow_empty_file=True)
 
     class Meta:

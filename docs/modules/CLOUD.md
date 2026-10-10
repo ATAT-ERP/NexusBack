@@ -33,6 +33,11 @@ persistir su metadata. La clave interna sigue la forma
 
 ## Endpoints actuales
 
+Todas las operaciones requieren autenticación Bearer. Para acceder a una
+Company, el usuario debe tener una membresía `CompanyMember`; los roles `owner`
+y `member` tienen las mismas operaciones disponibles en Cloud. Los accesos sin
+membresía responden `403 Forbidden`.
+
 ### Listado
 
 `GET /api/cloud/files/?company_id=<uuid>`
@@ -47,7 +52,9 @@ y ordena por `created_at` descendente.
 
 Requiere autenticación Bearer y recibe `multipart/form-data` con `company_id`,
 `file`, `category_id` opcional y `name` opcional. Cuando no se informa `name`,
-se usa el nombre original del archivo.
+se usa el nombre original del archivo. El usuario debe pertenecer a la Company y
+ésta debe estar activa; se rechaza la operación antes de subir el archivo cuando
+alguna condición no se cumple.
 
 El archivo debe contener datos, no puede superar 6 MiB y su tipo MIME declarado
 debe ser uno de: PDF, JPEG, PNG, DOCX o XLSX. Esta restricción usa el MIME
@@ -58,13 +65,16 @@ informado por la carga; no verifica el contenido real del archivo.
 `PATCH /api/cloud/files/<id>/?company_id=<uuid>`
 
 Sólo permite editar `name` y `category_id`. Cambiar `name` no renombra el archivo
-físico; el resto de los campos permanece protegido.
+físico; el resto de los campos permanece protegido. Requiere membresía y que la
+Company esté activa. `company_id` no puede reasignarse mediante esta operación.
+
+El ViewSet no expone una operación de eliminación de documentos.
 
 ### Descarga
 
 `GET /api/cloud/files/<id>/download/`
 
-Requiere autenticación Bearer y membership en la Company real del documento. Devuelve
+Requiere autenticación Bearer y membresía en la Company real del documento. Devuelve
 `{"url": "<signed-url>"}` con una URL temporal de 60 segundos para descargar desde
 el bucket privado `documents`; no expone `storage_key`.
 
@@ -73,11 +83,13 @@ el bucket privado `documents`; no expone `storage_key`.
 `GET /api/cloud/files/usage/?company_id=<uuid>`
 
 Responde `used`, `limit` y `available`, todos expresados en bytes.
+Requiere membresía en la Company indicada. La consulta histórica permanece
+disponible aunque la Company esté inactiva.
 
 ## Lectura de archivos XLSX
 
 Los archivos con extensión `.xlsx` pueden consultarse después de validar la
-membresía del usuario en la Company propietaria:
+membresía del usuario en la Company propietaria, incluso si está inactiva:
 
 - `GET /api/cloud/files/<id>/sheets/` devuelve `{"sheets": ["Clientes"]}`.
 - `GET /api/cloud/files/<id>/sheets/<hoja>/` devuelve el nombre y las filas de
@@ -99,10 +111,11 @@ calculan; se devuelve el valor guardado en el libro, o `null` si no tiene uno.
 `NEX-DOC-001` identifica datos de entrada inválidos, `NEX-DOC-002` un documento
 no encontrado o no disponible para la Company indicada y `NEX-DOC-003` un fallo
 de Storage. El catálogo completo está en [docs/ERROR_CODES.md](../ERROR_CODES.md).
+La ausencia de autenticación responde `401`; la falta de membresía o los intentos
+de escritura sobre una Company inactiva responden `403`.
 
 ## Pendiente / fuera de alcance actual
 
 - Cuota por Company.
-- Eliminación física.
+- Eliminación de documentos y de sus archivos físicos.
 - Consistencia entre DB y Storage si falla la persistencia posterior al upload.
-- Permisos owner/member y categorías completas.

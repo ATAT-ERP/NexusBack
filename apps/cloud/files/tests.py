@@ -25,6 +25,19 @@ class FileTests(APITestCase):
         self.owner_role = CompanyRole.objects.get(code="owner")
         self.client.force_authenticate(user=self.user)
 
+    def create_company(self, company_id=None, **overrides):
+        defaults = {"name": "Compañía de prueba"}
+        defaults.update(overrides)
+        if company_id is not None:
+            defaults["id"] = company_id
+        company = Company.objects.create(**defaults)
+        CompanyMember.objects.get_or_create(
+            user=self.user,
+            company=company,
+            defaults={"role": self.owner_role},
+        )
+        return company
+
     def create_document(self, company_id, **overrides):
         company, _ = Company.objects.get_or_create(
             id=company_id,
@@ -210,7 +223,55 @@ class FileTests(APITestCase):
 
         response = self.client.get(self.url, {"company_id": company_id})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        missing = self.client.get(self.url, {"company_id": uuid.uuid4()})
+
+        self.assert_document_not_found(response)
+        self.assertEqual(response.data, missing.data)
+
+    def test_member_can_list_documents_for_the_company(self):
+        company_id = uuid.uuid4()
+        document = self.create_document(company_id)
+        member = User.objects.create(id=uuid.uuid4(), email="collaborator@example.com")
+        CompanyMember.objects.create(
+            user=member,
+            company_id=company_id,
+            role=CompanyRole.objects.get(code="member"),
+        )
+        self.client.force_authenticate(user=member)
+
+        response = self.client.get(self.url, {"company_id": company_id})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.data], [str(document.id)])
+
+    def test_inactive_company_allows_historical_file_reads(self):
+        company = self.create_company(is_active=False)
+        document = File.objects.create(
+            company=company,
+            name="Histórico",
+            original_name="historico.pdf",
+            storage_key="documents/historico",
+            mime_type="application/pdf",
+            size=1024,
+        )
+
+        listing = self.client.get(self.url, {"company_id": company.id})
+        usage = self.get_usage(company.id)
+
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in listing.data], [str(document.id)])
+        self.assertEqual(usage.status_code, status.HTTP_200_OK)
+        self.assertEqual(usage.data["used"], 1024)
+
+    def test_usage_rejects_a_user_without_company_membership(self):
+        company = Company.objects.create(name="Compañía ajena")
+
+        response = self.get_usage(company.id)
+
+        missing = self.get_usage(uuid.uuid4())
+
+        self.assert_document_not_found(response)
+        self.assertEqual(response.data, missing.data)
 
     def test_requires_company_id(self):
         response = self.client.get(self.url)
@@ -431,6 +492,40 @@ class FileTests(APITestCase):
         self.assert_document_not_found(response)
         self.assertEqual(document.name, "Documento")
 
+    def test_patch_denies_a_user_without_membership(self):
+        company = Company.objects.create(name="Compañía ajena")
+        document = File.objects.create(
+            company=company,
+            name="Confidencial",
+            original_name="confidencial.pdf",
+            storage_key="documents/confidencial",
+            mime_type="application/pdf",
+            size=100,
+        )
+
+        response = self.client.patch(
+            self.detail_url(document.id, company.id),
+            {"name": "Editado"},
+            format="json",
+        )
+
+        missing = self.client.patch(
+            self.detail_url(uuid.uuid4(), uuid.uuid4()),
+            {"name": "Editado"},
+            format="json",
+        )
+        self.assert_document_not_found(response)
+        self.assertEqual(response.data, missing.data)
+        document.refresh_from_db()
+        self.assertEqual(document.name, "Confidencial")
+
+    def test_delete_is_not_an_exposed_file_operation(self):
+        document = self.create_document(uuid.uuid4())
+
+        response = self.client.delete(self.detail_url(document.id, document.company_id))
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
     def test_patch_does_not_expose_storage_key(self):
         company_id = uuid.uuid4()
         document = self.create_document(company_id)
@@ -474,13 +569,15 @@ class FileTests(APITestCase):
         self.assertEqual(document.size, size)
 
     def test_usage_is_zero_without_documents(self):
-        response = self.get_usage(uuid.uuid4())
+        company = self.create_company()
+        response = self.get_usage(company.id)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["used"], 0)
 
     def test_usage_has_full_available_space_without_documents(self):
-        response = self.get_usage(uuid.uuid4())
+        company = self.create_company()
+        response = self.get_usage(company.id)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["available"], settings.DOCUMENT_COMPANY_LIMIT_BYTES)
@@ -514,7 +611,8 @@ class FileTests(APITestCase):
 
     @override_settings(DOCUMENT_COMPANY_LIMIT_BYTES=100)
     def test_usage_returns_the_configured_limit(self):
-        response = self.get_usage(uuid.uuid4())
+        company = self.create_company()
+        response = self.get_usage(company.id)
 
         self.assertEqual(response.data["limit"], 100)
 
@@ -547,18 +645,21 @@ class FileTests(APITestCase):
         self.assert_validation_error(response, "company_id")
 
     def test_usage_allows_a_company_without_a_record(self):
-        response = self.get_usage(uuid.uuid4())
+        company = self.create_company()
+        response = self.get_usage(company.id)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["used"], 0)
 
     def test_usage_returns_only_public_fields(self):
-        response = self.get_usage(uuid.uuid4())
+        company = self.create_company()
+        response = self.get_usage(company.id)
 
         self.assertEqual(set(response.data), {"used", "limit", "available"})
 
     def test_usage_does_not_expose_the_safe_limit(self):
-        response = self.get_usage(uuid.uuid4())
+        company = self.create_company()
+        response = self.get_usage(company.id)
 
         self.assertNotIn("safe_limit", response.data)
         self.assertNotIn("DOCUMENT_STORAGE_SAFE_LIMIT_BYTES", response.data)
@@ -569,6 +670,31 @@ class FileListAuthenticationTests(APITestCase):
 
     def test_requires_authentication(self):
         response = self.client.get(self.url, {"company_id": uuid.uuid4()})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_metadata_update_requires_authentication(self):
+        user = User.objects.create(id=uuid.uuid4(), email="owner@example.com")
+        company = Company.objects.create(name="Compañía de prueba")
+        CompanyMember.objects.create(
+            user=user,
+            company=company,
+            role=CompanyRole.objects.get(code="owner"),
+        )
+        document = File.objects.create(
+            company=company,
+            name="Informe",
+            original_name="informe.pdf",
+            storage_key="documents/informe",
+            mime_type="application/pdf",
+            size=10,
+        )
+
+        response = self.client.patch(
+            f"{self.url}{document.id}/?company_id={company.id}",
+            {"name": "Editado"},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
@@ -617,13 +743,34 @@ class FileDownloadTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("apps.cloud.files.api.views.storage_client")
+    def test_inactive_company_allows_historical_download(self, storage_client):
+        self.company.is_active = False
+        self.company.save(update_fields=["is_active"])
+        self.client.force_authenticate(user=self.user)
+        storage_client.storage.from_().create_signed_url.return_value = {
+            "signedURL": "https://storage.example/signed-url"
+        }
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        storage_client.storage.from_().create_signed_url.assert_called_once()
+
+    @patch("apps.cloud.files.api.views.storage_client")
     def test_rejects_a_user_who_is_not_a_company_member(self, storage_client):
         user = User.objects.create(id=uuid.uuid4(), email="other@example.com")
         self.client.force_authenticate(user=user)
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        missing = self.client.get(f"/api/cloud/files/{uuid.uuid4()}/download/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data,
+            {"code": "NEX-DOC-002", "message": "Documento no encontrado."},
+        )
+        self.assertEqual(response.data, missing.data)
         storage_client.storage.from_.assert_not_called()
 
     @patch("apps.cloud.files.api.views.storage_client")
@@ -663,12 +810,43 @@ class FileCreateTests(APITestCase):
     def setUp(self):
         self.user = User.objects.create(id=uuid.uuid4(), email="creator@example.com")
         self.company = Company.objects.create(name="Compañía de prueba")
+        CompanyMember.objects.create(
+            user=self.user,
+            company=self.company,
+            role=CompanyRole.objects.get(code="owner"),
+        )
         self.client.force_authenticate(user=self.user)
 
     def assert_validation_error(self, response, field):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["code"], "NEX-DOC-001")
         self.assertIn(field, response.data["errors"])
+
+    def test_rejects_an_invalid_company_uuid_as_validation_error(self):
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf", b"contenido", content_type="application/pdf"
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": "not-a-uuid", "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assert_validation_error(response, "company_id")
+
+    def test_requires_company_id_for_upload(self):
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf", b"contenido", content_type="application/pdf"
+        )
+
+        response = self.client.post(
+            self.url,
+            {"file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assert_validation_error(response, "company_id")
 
     @patch("apps.cloud.files.api.views.storage_client")
     def test_creates_a_document_and_uploads_its_file(self, storage_client):
@@ -727,6 +905,101 @@ class FileCreateTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["name"], "Informe de agosto")
         storage_client.storage.from_().upload.assert_called_once()
+
+    @patch("apps.cloud.files.api.views.storage_client")
+    def test_member_can_upload_to_an_authorized_company(self, storage_client):
+        member = User.objects.create(id=uuid.uuid4(), email="member@example.com")
+        CompanyMember.objects.create(
+            user=member,
+            company=self.company,
+            role=CompanyRole.objects.get(code="member"),
+        )
+        self.client.force_authenticate(user=member)
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf", b"contenido", content_type="application/pdf"
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        storage_client.storage.from_().upload.assert_called_once()
+
+    @patch("apps.cloud.files.api.views.storage_client")
+    def test_rejects_upload_to_a_company_without_membership(self, storage_client):
+        company = Company.objects.create(name="Compañía ajena")
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf", b"contenido", content_type="application/pdf"
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        missing = self.client.post(
+            self.url,
+            {
+                "company_id": uuid.uuid4(),
+                "file": SimpleUploadedFile(
+                    "informe.pdf", b"contenido", content_type="application/pdf"
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data,
+            {"code": "NEX-DOC-002", "message": "Documento no encontrado."},
+        )
+        self.assertEqual(response.data, missing.data)
+        self.assertFalse(File.objects.exists())
+        storage_client.storage.from_.assert_not_called()
+
+    @patch("apps.cloud.files.api.views.storage_client")
+    def test_rejects_upload_to_an_inactive_company(self, storage_client):
+        self.company.is_active = False
+        self.company.save(update_fields=["is_active"])
+        uploaded_file = SimpleUploadedFile(
+            "informe.pdf", b"contenido", content_type="application/pdf"
+        )
+
+        response = self.client.post(
+            self.url,
+            {"company_id": self.company.id, "file": uploaded_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(File.objects.exists())
+        storage_client.storage.from_.assert_not_called()
+
+    def test_rejects_metadata_updates_for_an_inactive_company(self):
+        self.company.is_active = False
+        self.company.save(update_fields=["is_active"])
+        document = File.objects.create(
+            company=self.company,
+            name="Informe",
+            original_name="informe.pdf",
+            storage_key="documents/informe",
+            mime_type="application/pdf",
+            size=10,
+        )
+
+        response = self.client.patch(
+            f"{self.url}{document.id}/?company_id={self.company.id}",
+            {"name": "Editado"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        document.refresh_from_db()
+        self.assertEqual(document.name, "Informe")
 
     @patch("apps.cloud.files.api.views.storage_client")
     def test_requires_a_file(self, storage_client):

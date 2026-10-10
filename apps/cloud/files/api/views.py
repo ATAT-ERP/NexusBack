@@ -40,24 +40,14 @@ class FileViewSet(
     """
     Crea, lista y actualiza la metadata de archivos restringida a una Company.
 
-    @version 2.1
+    @version 3.1
     @author Agustin
     """
 
     serializer_class = FileSerializer
     http_method_names = ["get", "post", "patch", "head", "options"]
     authentication_classes = (SupabaseBearerAuthentication,)
-
-    def get_permissions(self):
-        """
-        Exige un usuario autenticado para crear, listar o descargar archivos.
-
-        @version 1.2
-        @author Agustin
-        """
-        if self.action in ("create", "list", "download", "sheets", "sheet"):
-            return [IsAuthenticated()]
-        return super().get_permissions()
+    permission_classes = (IsAuthenticated,)
 
     def get_serializer_class(self):
         """
@@ -74,7 +64,7 @@ class FileViewSet(
         """
         Crea un documento y responde con su metadata pública.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         serializer = self.get_serializer(data=request.data)
@@ -86,11 +76,16 @@ class FileViewSet(
         """
         Sube el archivo, persiste su metadata y limpia Storage si falla la base.
 
-        @version 1.1
+        @version 1.3
         @author Agustin
         """
         uploaded_file = serializer.validated_data["file"]
-        company = serializer.validated_data["company"]
+        company_id = serializer.validated_data["company_id"]
+        company = self._check_company_access(
+            company_id,
+            self.request.user,
+            write=True,
+        )
         file_id = uuid.uuid4()
         storage_key = f"{company.id}/{file_id}"
         mime_type = uploaded_file.content_type
@@ -119,9 +114,9 @@ class FileViewSet(
 
     def get_object(self):
         """
-        Obtiene un documento; para download no confía en una Company enviada por cliente.
+        Obtiene un documento únicamente si el usuario pertenece a su Company.
 
-        @version 1.1
+        @version 1.3
         @author Agustin
         """
         try:
@@ -131,17 +126,27 @@ class FileViewSet(
 
         try:
             if self.action in ("download", "sheets", "sheet"):
-                return get_object_or_404(File, id=file_id)
-
-            query_serializer = CompanyQuery(data=self.request.query_params)
-            query_serializer.is_valid(raise_exception=True)
-            return get_object_or_404(
-                File,
-                id=file_id,
-                company_id=query_serializer.validated_data["company_id"],
-            )
+                file = get_object_or_404(
+                    File.objects.select_related("company"),
+                    id=file_id,
+                    company__memberships__user=self.request.user,
+                )
+            else:
+                query_serializer = CompanyQuery(data=self.request.query_params)
+                query_serializer.is_valid(raise_exception=True)
+                file = get_object_or_404(
+                    File.objects.select_related("company"),
+                    id=file_id,
+                    company_id=query_serializer.validated_data["company_id"],
+                    company__memberships__user=self.request.user,
+                )
         except Http404:
             self._not_found()
+
+        if self.action in ("update", "partial_update"):
+            if not file.company.is_active:
+                raise PermissionDenied()
+        return file
 
     def handle_exception(self, error):
         """
@@ -207,11 +212,10 @@ class FileViewSet(
         """
         Genera una URL temporal para descargar un archivo de la Company autorizada.
 
-        @version 1.1
+        @version 1.2
         @author Agustin
         """
         file = self.get_object()
-        self._check_membership(file, request.user)
 
         signed_url = storage_client.storage.from_("documents").create_signed_url(
             file.storage_key,
@@ -222,9 +226,10 @@ class FileViewSet(
 
     @action(detail=True, methods=["get"], url_path="sheets")
     def sheets(self, request, *args, **kwargs):
-        """Devuelve las hojas disponibles en un archivo XLSX autorizado.
+        """
+        Devuelve las hojas disponibles en un archivo XLSX autorizado.
 
-        @version 1.0
+        @version 1.2
         @author Agustin
         """
         content = self._excel_content()
@@ -236,46 +241,57 @@ class FileViewSet(
         url_path=r"sheets/(?P<sheet>[^/]+)",
     )
     def sheet(self, request, sheet, *args, **kwargs):
-        """Devuelve los valores de una hoja de un archivo XLSX autorizado.
+        """
+        Devuelve los valores de una hoja de un archivo XLSX autorizado.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         content = self._excel_content()
         return Response({"name": sheet, "rows": excel_reader.read(content, sheet)})
 
     def _excel_content(self):
-        """Valida el acceso y devuelve el contenido almacenado de un XLSX.
+        """
+        Devuelve el contenido almacenado de un XLSX autorizado.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         file = self.get_object()
-        self._check_membership(file, self.request.user)
         if not file.original_name.lower().endswith(".xlsx"):
             raise ValidationError("El archivo debe tener extensión .xlsx.")
         return storage_client.storage.from_("documents").download(file.storage_key)
 
     @staticmethod
-    def _check_membership(file, user):
-        """Exige membresía en la Company dueña del archivo.
+    def _check_company_access(company_id, user, write=False):
+        """
+        Exige membresía y, para escrituras, una Company activa.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
-        if not CompanyMember.objects.filter(user=user, company_id=file.company_id).exists():
+        membership = (
+            CompanyMember.objects.filter(user=user, company_id=company_id)
+            .select_related("company")
+            .first()
+        )
+        if membership is None:
+            FileViewSet._not_found()
+        if write and not membership.company.is_active:
             raise PermissionDenied()
+        return membership.company
 
     @action(detail=False, methods=["get"])
     def usage(self, request):
         """
         Devuelve el uso y espacio disponible de archivos para una Company.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         query = CompanyQuery(data=request.query_params)
         query.is_valid(raise_exception=True)
+        self._check_company_access(query.validated_data["company_id"], request.user)
 
         used = (
             File.objects.filter(company_id=query.validated_data["company_id"])
@@ -295,18 +311,14 @@ class FileViewSet(
         """
         Construye el listado de la Company a la que pertenece el usuario.
 
-        @version 1.1
+        @version 1.3
         @author Agustin
         """
         query_serializer = ListQuerySerializer(data=self.request.query_params)
         query_serializer.is_valid(raise_exception=True)
         filters = query_serializer.validated_data
 
-        if not CompanyMember.objects.filter(
-            user=self.request.user,
-            company_id=filters["company_id"],
-        ).exists():
-            raise PermissionDenied()
+        self._check_company_access(filters["company_id"], self.request.user)
 
         files = File.objects.filter(company_id=filters["company_id"])
         category_id = filters.get("category_id")
