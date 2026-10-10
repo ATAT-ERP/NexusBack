@@ -86,6 +86,7 @@ class CompanyAccessTests(APITestCase):
         deletion = self.client.delete(f"{self.list_url}{self.company.id}/")
 
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["my_role"], "member")
         self.assertEqual(update.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(deletion.status_code, status.HTTP_403_FORBIDDEN)
         self.company.refresh_from_db()

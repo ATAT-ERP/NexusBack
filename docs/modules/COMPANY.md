@@ -2,9 +2,10 @@
 
 ## Finalidad
 
-`company` representa el espacio de trabajo de una actividad económica dentro
-de A.T.A.T., pudiendo corresponder a un autónomo, comercio, emprendimiento o
-pequeña organización. La compañía no requiere validación fiscal externa para
+`company` representa el espacio de trabajo de un cliente dentro de A.T.A.T. y
+de la cartera que administra un contador. Puede corresponder a una persona con
+actividad individual o a una PyME/organización. La compañía conserva sus datos
+administrativos y de contacto; no requiere validación fiscal externa para
 existir.
 
 El identificador es un UUID generado localmente por la aplicación en el momento
@@ -45,10 +46,22 @@ apps/company/
 │   ├── serializers.py
 │   ├── views.py
 │   └── urls.py
+├── models/
+│   ├── company.py
+│   ├── member.py
+│   └── role.py
 ├── migrations/
 │   ├── 0001_initial.py
-│   └── 0002_company_unique_company_tax_id.py
-├── tests.py
+│   ├── 0002_company_unique_company_tax_id.py
+│   ├── 0003_companyrole_companymember.py
+│   └── 0004_initial_company_roles.py
+├── tests/
+│   ├── test_create.py
+│   ├── test_list.py
+│   ├── test_membership.py
+│   ├── test_permissions.py
+│   ├── test_search.py
+│   └── test_update.py
 ├── apps.py
 └── models.py
 ```
@@ -70,16 +83,29 @@ Todos los endpoints requieren autenticación Bearer mediante
 tenga una membresía `CompanyMember`. El detalle de una Company ajena responde
 `404` para no revelar si existe.
 
-El listado se limita a las Companies del usuario. `is_active` conserva sus
-valores: `true` (predeterminado), `false` y `all`. La búsqueda por nombre, razón
-social o CUIT también se limita a sus membresías y puede encontrar Companies
-activas e inactivas.
+El listado y la búsqueda se limitan a las Companies del usuario. Ambos aceptan
+los mismos filtros:
+
+| Parámetro | Valores | Comportamiento |
+| --- | --- | --- |
+| `is_active` | `true`, `false`, `all` | Por defecto `true`; `false` devuelve inactivas y `all` ambas. |
+| `type` | `individual`, `organization` | Filtra por tipo; sin parámetro incluye ambos. |
+
+La búsqueda también acepta `q` y busca por nombre, razón social o CUIT. Una
+búsqueda sin `q` o sin coincidencias devuelve `200` con `[]`. El campo público
+de solo lectura `my_role` indica el rol del usuario autenticado en cada Company
+(`owner` o `member`), según su membresía. Está presente en listado, búsqueda,
+detalle y alta.
+
+Los parámetros `is_active` y `type` inválidos responden `400` con el contrato
+de validación `NEX-COM-001`.
 
 ### Alta (POST /api/companies/)
 
 Registra una nueva compañía. Responde `201 Created` con el cuerpo de la compañía
-creada (incluye su `id`) y crea una membresía `owner` para el usuario que la
-registró. Responde `400 Bad Request` cuando falla la validación.
+creada (incluye su `id` y `my_role: "owner"`) y crea una membresía `owner` para
+el usuario que la registró. Responde `400 Bad Request` cuando falla la
+validación.
 
 #### Path
 
@@ -161,6 +187,30 @@ Errores posibles (responden `400 Bad Request` con código `NEX-COM-001` y las
 }
 ```
 
+#### Respuesta de ejemplo
+
+```json
+{
+  "id": "d93d65eb-e066-4b94-a348-bab04448f0f0",
+  "my_role": "owner",
+  "type": "organization",
+  "name": "Org Ejemplo",
+  "legal_name": "Org Ejemplo S.A.",
+  "tax_id": "20000000001",
+  "email": "contacto@orgejemplo.com",
+  "phone": "+54 11 5555 5555",
+  "address_street": "Av. Ejemplo",
+  "address_number": "123",
+  "address_city": "Buenos Aires",
+  "address_postal_code": null,
+  "address_province": null,
+  "address_country": "Argentina",
+  "is_active": true,
+  "created_at": "2026-10-10T12:00:00Z",
+  "updated_at": "2026-10-10T12:00:00Z"
+}
+```
+
 ### Búsqueda (GET /api/companies/search/?q=...)
 
 Localiza compañías por nombre, razón social o CUIT:
@@ -172,13 +222,43 @@ Localiza compañías por nombre, razón social o CUIT:
 - una búsqueda sin coincidencias devuelve una colección vacía (`200`, `[]`);
 - una consulta `q` ausente o vacía se maneja de forma controlada devolviendo una
   colección vacía (`200`, `[]`).
+- por defecto sólo devuelve Companies activas; admite los mismos filtros
+  `is_active` y `type` que el listado.
+- cada resultado incluye `my_role` correspondiente a la membresía del usuario.
+
+#### Ejemplo de respuesta
+
+```json
+[
+  {
+    "id": "d93d65eb-e066-4b94-a348-bab04448f0f0",
+    "my_role": "member",
+    "type": "individual",
+    "name": "María Pérez",
+    "legal_name": null,
+    "tax_id": null,
+    "email": null,
+    "phone": null,
+    "address_street": null,
+    "address_number": null,
+    "address_city": null,
+    "address_postal_code": null,
+    "address_province": null,
+    "address_country": null,
+    "is_active": true,
+    "created_at": "2026-10-10T12:00:00Z",
+    "updated_at": "2026-10-10T12:00:00Z"
+  }
+]
+```
 
 ### Detalle, edición y baja lógica
 
 `GET /api/companies/{id}/` permite consultar una Company activa o inactiva a sus
-miembros. `PUT` y `PATCH` sólo están disponibles para el rol `owner` y mientras
-la Company permanezca activa. `DELETE` aplica la baja lógica (`is_active =
-False`) y también requiere `owner`; conserva los datos y las membresías.
+miembros y devuelve `my_role`. `PUT` y `PATCH` sólo están disponibles para el rol
+`owner` y mientras la Company permanezca activa. `DELETE` aplica la baja lógica
+(`is_active = False`) y también requiere `owner`; conserva los datos y las
+membresías.
 
 Un usuario `member` puede consultar y buscar Companies a las que pertenece, pero
 recibe `403 Forbidden` al intentar editarlas o darlas de baja. Las operaciones

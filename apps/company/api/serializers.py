@@ -7,14 +7,17 @@ class CompanySerializer(serializers.ModelSerializer):
     """
     Serializa y valida los datos de una compañía.
 
-    @version 1.0
+    @version 1.1
     @author Agustin
     """
+
+    my_role = serializers.CharField(read_only=True)
 
     class Meta:
         model = Company
         fields = (
             "id",
+            "my_role",
             "type",
             "name",
             "legal_name",

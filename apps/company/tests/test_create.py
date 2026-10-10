@@ -30,6 +30,7 @@ class CompanyCreateTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         company = Company.objects.get(pk=response.data["id"])
+        self.assertEqual(response.data["my_role"], "owner")
         self.assertEqual(company.type, Company.Type.INDIVIDUAL)
         self.assertEqual(company.tax_id, None)
         self.assertEqual(company.legal_name, None)

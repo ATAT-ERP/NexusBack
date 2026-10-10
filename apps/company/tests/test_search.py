@@ -34,6 +34,11 @@ class CompanySearchTests(APITestCase):
             company=self.company,
             role=CompanyRole.objects.get(code="owner"),
         )
+        CompanyMember.objects.create(
+            user=self.user,
+            company=self.other,
+            role=CompanyRole.objects.get(code="member"),
+        )
         self.client.force_authenticate(user=self.user)
 
     def test_search_by_name_returns_matches(self):
@@ -42,6 +47,13 @@ class CompanySearchTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = [item["id"] for item in response.data]
         self.assertIn(str(self.company.id), ids)
+        self.assertEqual(response.data[0]["my_role"], "owner")
+
+    def test_search_exposes_membership_role_for_each_company(self):
+        response = self.client.get(self.url, {"q": "María"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["my_role"], "member")
 
     def test_search_by_legal_name_returns_matches(self):
         response = self.client.get(
@@ -86,3 +98,45 @@ class CompanySearchTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, [])
+
+    def test_search_defaults_to_active_companies(self):
+        self.company.is_active = False
+        self.company.save()
+
+        response = self.client.get(self.url, {"q": "Acme"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_search_filters_inactive_companies_by_state_and_type(self):
+        self.company.is_active = False
+        self.company.save()
+
+        response = self.client.get(
+            self.url,
+            {"q": "Acme", "is_active": "false", "type": "organization"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in response.data], [str(self.company.id)])
+
+    def test_search_includes_inactive_companies_when_requested(self):
+        self.company.is_active = False
+        self.company.save()
+
+        response = self.client.get(
+            self.url, {"q": "Acme", "is_active": "all"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in response.data], [str(self.company.id)])
+
+    def test_search_rejects_invalid_filters_with_company_error_contract(self):
+        response = self.client.get(
+            self.url, {"q": "Acme", "type": "business"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "NEX-COM-001")
+        self.assertIn("type", response.data["errors"])
