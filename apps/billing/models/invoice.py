@@ -70,3 +70,15 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f"Invoice({self.point_of_sale_id}, {self.invoice_type}, {self.number})"
+
+    @property
+    def formatted_number(self):
+        """
+        Representa el comprobante como punto de venta y número, por
+        ejemplo 00001-00000015. Es None mientras sea un borrador.
+        @version 1.0
+        @author Thiago
+        """
+        if self.number is None:
+            return None
+        return f"{self.point_of_sale.formatted_number}-{self.number:08d}"
