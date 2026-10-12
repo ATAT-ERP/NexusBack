@@ -231,3 +231,93 @@ class InvoiceAPITests(APITestCase):
         self.assertEqual(invoice.status, InvoiceStatus.DRAFT)
         self.assertIsNone(invoice.number)
         self.assertIsNone(invoice.issue_date)
+
+    def create_user(self, email, company=None):
+        user = User.objects.create(id=uuid.uuid4(), email=email)
+        if company is not None:
+            CompanyMember.objects.create(
+                user=user,
+                company=company,
+                role=CompanyRole.objects.get(code="owner"),
+            )
+        return user
+
+    def test_non_member_cannot_list_or_create_invoices(self):
+        self.client.force_authenticate(user=self.create_user("nomember@example.com"))
+
+        list_response = self.client.get(self.list_url)
+        create_response = self.client.post(self.list_url, self.payload(), format="json")
+
+        self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Invoice.objects.exists())
+
+    def test_member_of_other_company_cannot_read_or_update_invoice(self):
+        invoice = self.create_invoice()
+        self.client.force_authenticate(
+            user=self.create_user("member-b@example.com", self.other_company)
+        )
+        url = f"/api/billing/companies/{self.other_company.id}/invoices/{invoice.id}/"
+
+        get_response = self.client.get(url)
+        patch_response = self.client.patch(
+            url, {"receiver_name": "Alterado"}, format="json"
+        )
+
+        self.assertEqual(get_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(patch_response.status_code, status.HTTP_404_NOT_FOUND)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.receiver_name, "Cliente Ejemplo")
+
+    def test_non_member_cannot_read_or_update_invoice(self):
+        invoice = self.create_invoice()
+        self.client.force_authenticate(user=self.create_user("nomember@example.com"))
+        url = f"{self.list_url}{invoice.id}/"
+
+        get_response = self.client.get(url)
+        patch_response = self.client.patch(
+            url, {"receiver_name": "Alterado"}, format="json"
+        )
+
+        self.assertEqual(get_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(patch_response.status_code, status.HTTP_403_FORBIDDEN)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.receiver_name, "Cliente Ejemplo")
+
+    def point_of_sale_error(self, response, pk):
+        # El mensaje de DRF incluye la pk enviada; se enmascara para comparar.
+        error = response.data["point_of_sale"][0]
+        return response.status_code, error.code, str(error).replace(str(pk), "<pk>")
+
+    def test_nonexistent_and_foreign_point_of_sale_are_indistinguishable_on_create(self):
+        missing = self.client.post(
+            self.list_url, self.payload(point_of_sale=999999), format="json"
+        )
+        foreign = self.client.post(
+            self.list_url,
+            self.payload(point_of_sale=self.other_point_of_sale.id),
+            format="json",
+        )
+
+        missing_error = self.point_of_sale_error(missing, 999999)
+        self.assertEqual(missing_error[:2], (400, "does_not_exist"))
+        self.assertEqual(
+            missing_error,
+            self.point_of_sale_error(foreign, self.other_point_of_sale.id),
+        )
+
+    def test_nonexistent_and_foreign_point_of_sale_are_indistinguishable_on_update(self):
+        invoice = self.create_invoice()
+        url = f"{self.list_url}{invoice.id}/"
+
+        missing = self.client.patch(url, {"point_of_sale": 999999}, format="json")
+        foreign = self.client.patch(
+            url, {"point_of_sale": self.other_point_of_sale.id}, format="json"
+        )
+
+        missing_error = self.point_of_sale_error(missing, 999999)
+        self.assertEqual(missing_error[:2], (400, "does_not_exist"))
+        self.assertEqual(
+            missing_error,
+            self.point_of_sale_error(foreign, self.other_point_of_sale.id),
+        )

@@ -105,3 +105,126 @@ class PointOfSaleAPITests(APITestCase):
         response = self.client.post(other_url, {}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class PointOfSaleIsolationTests(APITestCase):
+    def setUp(self):
+        owner_role = CompanyRole.objects.get(code="owner")
+        self.company = Company.objects.create(name="Empresa A")
+        self.point_of_sale = assign_point_of_sale_number(
+            FiscalProfile.objects.create(
+                company=self.company, vat_condition=VATCondition.MONOTAX
+            )
+        )
+        self.user = User.objects.create(id=uuid.uuid4(), email="pos-a@example.com")
+        CompanyMember.objects.create(
+            user=self.user, company=self.company, role=owner_role
+        )
+
+        self.other_company = Company.objects.create(name="Empresa B")
+        FiscalProfile.objects.create(
+            company=self.other_company, vat_condition=VATCondition.MONOTAX
+        )
+        self.other_user = User.objects.create(id=uuid.uuid4(), email="pos-b@example.com")
+        CompanyMember.objects.create(
+            user=self.other_user, company=self.other_company, role=owner_role
+        )
+
+        self.url = (
+            f"/api/billing/companies/{self.company.id}/points-of-sale/"
+            f"{self.point_of_sale.id}/"
+        )
+        # Misma pk consultada desde la Company B.
+        self.other_url = (
+            f"/api/billing/companies/{self.other_company.id}/points-of-sale/"
+            f"{self.point_of_sale.id}/"
+        )
+
+    def test_member_of_other_company_cannot_read_point_of_sale(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        for url, expected in (
+            (self.url, status.HTTP_403_FORBIDDEN),
+            (self.other_url, status.HTTP_404_NOT_FOUND),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, expected)
+
+    def test_member_can_read_own_point_of_sale(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.point_of_sale.id)
+
+    def test_member_of_other_company_cannot_activate_point_of_sale(self):
+        PointOfSale.objects.filter(pk=self.point_of_sale.pk).update(is_active=False)
+        self.client.force_authenticate(user=self.other_user)
+
+        for url, expected in (
+            (self.url, status.HTTP_403_FORBIDDEN),
+            (self.other_url, status.HTTP_404_NOT_FOUND),
+        ):
+            with self.subTest(url=url):
+                response = self.client.post(f"{url}activate/")
+
+                self.assertEqual(response.status_code, expected)
+                self.point_of_sale.refresh_from_db()
+                self.assertFalse(self.point_of_sale.is_active)
+
+    def test_member_can_activate_own_point_of_sale(self):
+        PointOfSale.objects.filter(pk=self.point_of_sale.pk).update(is_active=False)
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(f"{self.url}activate/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.point_of_sale.refresh_from_db()
+        self.assertTrue(self.point_of_sale.is_active)
+
+    def test_member_of_other_company_cannot_deactivate_point_of_sale(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        for url, expected in (
+            (self.url, status.HTTP_403_FORBIDDEN),
+            (self.other_url, status.HTTP_404_NOT_FOUND),
+        ):
+            with self.subTest(url=url):
+                response = self.client.post(f"{url}deactivate/")
+
+                self.assertEqual(response.status_code, expected)
+                self.point_of_sale.refresh_from_db()
+                self.assertTrue(self.point_of_sale.is_active)
+
+    def test_member_can_deactivate_own_point_of_sale(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(f"{self.url}deactivate/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.point_of_sale.refresh_from_db()
+        self.assertFalse(self.point_of_sale.is_active)
+
+    def test_non_member_cannot_list_points_of_sale(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.get(
+            f"/api/billing/companies/{self.company.id}/points-of-sale/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_list_never_includes_points_of_sale_of_other_company(self):
+        assign_point_of_sale_number(FiscalProfile.objects.get(company=self.company))
+        own_point_of_sale = assign_point_of_sale_number(
+            FiscalProfile.objects.get(company=self.other_company)
+        )
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.get(
+            f"/api/billing/companies/{self.other_company.id}/points-of-sale/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.data], [own_point_of_sale.id])

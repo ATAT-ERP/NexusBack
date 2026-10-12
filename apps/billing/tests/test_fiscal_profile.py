@@ -144,6 +144,22 @@ class FiscalProfileAPITests(APITestCase):
         ):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_user_without_company_membership_cannot_replace_profile(self):
+        FiscalProfile.objects.create(
+            company=self.other_company,
+            vat_condition=VATCondition.EXEMPT,
+        )
+
+        response = self.client.put(
+            self.url.format(self.other_company.id),
+            {"vat_condition": VATCondition.MONOTAX},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        profile = FiscalProfile.objects.get(company=self.other_company)
+        self.assertEqual(profile.vat_condition, VATCondition.EXEMPT)
+
     def test_api_rejects_duplicate_profile(self):
         FiscalProfile.objects.create(
             company=self.company,
