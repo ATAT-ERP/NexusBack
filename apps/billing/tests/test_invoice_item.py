@@ -255,3 +255,116 @@ class InvoiceItemAPITests(APITestCase):
 
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertIn(field, response.data)
+
+
+class InvoiceItemIsolationTests(APITestCase):
+    def setUp(self):
+        owner_role = CompanyRole.objects.get(code="owner")
+        self.company = Company.objects.create(name="Empresa ítems A")
+        point_of_sale = assign_point_of_sale_number(
+            FiscalProfile.objects.create(
+                company=self.company,
+                vat_condition=VATCondition.REGISTERED_RESPONSIBLE,
+            )
+        )
+        self.invoice = create_invoice(point_of_sale)
+        self.item = InvoiceItem.objects.create(
+            invoice=self.invoice,
+            description="Producto",
+            quantity=Decimal("2.00"),
+            unit_price=Decimal("100.00"),
+            tax_treatment=TaxTreatment.TAXED,
+            vat_rate=VATRate.TWENTY_ONE,
+        )
+        self.user = User.objects.create(id=uuid.uuid4(), email="items-a@example.com")
+        CompanyMember.objects.create(
+            user=self.user, company=self.company, role=owner_role
+        )
+
+        self.other_company = Company.objects.create(name="Empresa ítems B")
+        FiscalProfile.objects.create(
+            company=self.other_company,
+            vat_condition=VATCondition.REGISTERED_RESPONSIBLE,
+        )
+        self.other_user = User.objects.create(
+            id=uuid.uuid4(), email="items-b@example.com"
+        )
+        CompanyMember.objects.create(
+            user=self.other_user, company=self.other_company, role=owner_role
+        )
+
+        self.list_url = (
+            f"/api/billing/companies/{self.company.id}/invoices/"
+            f"{self.invoice.id}/items/"
+        )
+        # Misma factura consultada desde la Company B.
+        self.other_list_url = (
+            f"/api/billing/companies/{self.other_company.id}/invoices/"
+            f"{self.invoice.id}/items/"
+        )
+
+    def payload(self):
+        return {
+            "description": "Nuevo",
+            "quantity": "1.00",
+            "unit_price": "10.00",
+            "tax_treatment": TaxTreatment.EXEMPT,
+        }
+
+    def test_member_of_other_company_cannot_list_or_create_items(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        for url, expected in (
+            (self.list_url, status.HTTP_403_FORBIDDEN),
+            (self.other_list_url, status.HTTP_404_NOT_FOUND),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, expected)
+                response = self.client.post(url, self.payload(), format="json")
+                self.assertEqual(response.status_code, expected)
+
+        self.assertEqual(InvoiceItem.objects.filter(invoice=self.invoice).count(), 1)
+
+    def test_member_can_list_and_create_own_items(self):
+        self.client.force_authenticate(user=self.user)
+
+        list_response = self.client.get(self.list_url)
+        create_response = self.client.post(
+            self.list_url, self.payload(), format="json"
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data), 1)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+    def test_member_of_other_company_cannot_read_or_update_item(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        for list_url, expected in (
+            (self.list_url, status.HTTP_403_FORBIDDEN),
+            (self.other_list_url, status.HTTP_404_NOT_FOUND),
+        ):
+            with self.subTest(url=list_url):
+                url = f"{list_url}{self.item.id}/"
+                self.assertEqual(self.client.get(url).status_code, expected)
+                response = self.client.patch(
+                    url, {"description": "Editado"}, format="json"
+                )
+                self.assertEqual(response.status_code, expected)
+
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.description, "Producto")
+
+    def test_member_can_read_and_update_own_item(self):
+        self.client.force_authenticate(user=self.user)
+        url = f"{self.list_url}{self.item.id}/"
+
+        get_response = self.client.get(url)
+        patch_response = self.client.patch(
+            url, {"description": "Editado"}, format="json"
+        )
+
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.description, "Editado")

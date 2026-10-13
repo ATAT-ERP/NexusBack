@@ -24,7 +24,13 @@ class CompanyScopedBillingView:
     authentication_classes = (SupabaseBearerAuthentication,)
     permission_classes = (IsAuthenticated,)
 
-    def get_fiscal_profile(self):
+    def get_company(self):
+        """
+        Obtiene la Company de la URL sólo si el usuario autenticado es
+        miembro, sin requerir que tenga FiscalProfile.
+        @version 1.0
+        @author Thiago
+        """
         membership = (
             CompanyMember.objects.select_related("company")
             .filter(user=self.request.user, company_id=self.kwargs["company_id"])
@@ -32,7 +38,10 @@ class CompanyScopedBillingView:
         )
         if membership is None:
             raise PermissionDenied()
-        return get_object_or_404(FiscalProfile, company=membership.company)
+        return membership.company
+
+    def get_fiscal_profile(self):
+        return get_object_or_404(FiscalProfile, company=self.get_company())
 
 
 class PointOfSaleListCreateView(CompanyScopedBillingView, generics.GenericAPIView):

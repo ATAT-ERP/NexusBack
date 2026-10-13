@@ -32,21 +32,25 @@ class CompanyScopedInvoiceView(CompanyScopedBillingView):
             point_of_sale__fiscal_profile=self.get_fiscal_profile()
         ).select_related("point_of_sale").prefetch_related("items")
 
-    def save_in_company(self, serializer):
+    def get_serializer_context(self):
         """
-        Guarda la factura sólo si su punto de venta pertenece a la Company
-        autorizada.
+        Agrega el fiscal profile de la Company autorizada para acotar el
+        punto de venta del serializer.
         @version 1.0
         @author Uziel
         """
-        point_of_sale = serializer.validated_data.get("point_of_sale")
-        if (
-            point_of_sale is not None
-            and point_of_sale.fiscal_profile_id != self.get_fiscal_profile().pk
-        ):
-            raise serializers.ValidationError(
-                {"point_of_sale": "El punto de venta no pertenece a la compañía."}
-            )
+        return {
+            **super().get_serializer_context(),
+            "fiscal_profile": self.get_fiscal_profile(),
+        }
+
+    def save_in_company(self, serializer):
+        """
+        Guarda la factura; su punto de venta ya fue acotado a la Company
+        autorizada por el serializer.
+        @version 1.1
+        @author Uziel
+        """
         serializer.save()
 
     def perform_create(self, serializer):

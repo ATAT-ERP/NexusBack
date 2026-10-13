@@ -1,16 +1,15 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.billing.models import FiscalProfile
 from apps.billing.serializers import FiscalProfileSerializer
-from apps.company.models import CompanyMember
+from apps.billing.views.point_of_sale import CompanyScopedBillingView
 from apps.users.authentication import SupabaseBearerAuthentication
 
 
-class FiscalProfileView(generics.GenericAPIView):
+class FiscalProfileView(CompanyScopedBillingView, generics.GenericAPIView):
     """
     Consulta, crea y actualiza el perfil fiscal de una Company autorizada.
     @version 1.0
@@ -20,21 +19,6 @@ class FiscalProfileView(generics.GenericAPIView):
     serializer_class = FiscalProfileSerializer
     authentication_classes = (SupabaseBearerAuthentication,)
     permission_classes = (IsAuthenticated,)
-
-    def get_company(self):
-        """
-        Obtiene la Company sólo si el usuario autenticado es miembro.
-        @version 1.0
-        @author Agustin
-        """
-        membership = (
-            CompanyMember.objects.select_related("company")
-            .filter(user=self.request.user, company_id=self.kwargs["company_id"])
-            .first()
-        )
-        if membership is None:
-            raise PermissionDenied()
-        return membership.company
 
     def get(self, request, *args, **kwargs):
         """

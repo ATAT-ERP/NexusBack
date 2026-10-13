@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.billing.models import Invoice
+from apps.billing.models import Invoice, PointOfSale
 from apps.billing.serializers.invoice_item import InvoiceItemSerializer
 
 
@@ -80,3 +80,16 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def get_fields(self):
+        """
+        Limita point_of_sale a los puntos de venta del fiscal profile del
+        contexto, para que uno inexistente y uno ajeno respondan igual.
+        @version 1.0
+        @author Uziel
+        """
+        fields = super().get_fields()
+        fields["point_of_sale"].queryset = PointOfSale.objects.filter(
+            fiscal_profile=self.context["fiscal_profile"]
+        )
+        return fields
