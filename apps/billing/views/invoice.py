@@ -16,7 +16,7 @@ class CompanyScopedInvoiceView(CompanyScopedBillingView):
     Limita las facturas a los puntos de venta de la Company autorizada y
     rechaza puntos de venta de otra Company al crear o editar. Una factura
     emitida es inmutable: no admite edición.
-    @version 1.1
+    @version 1.2
     @author Uziel
     """
 
@@ -25,12 +25,12 @@ class CompanyScopedInvoiceView(CompanyScopedBillingView):
     def get_queryset(self):
         """
         Retorna las facturas de la Company indicada en la URL.
-        @version 1.1
+        @version 1.2
         @author Uziel
         """
         return Invoice.objects.filter(
             point_of_sale__fiscal_profile=self.get_fiscal_profile()
-        ).select_related("point_of_sale").prefetch_related("items")
+        ).select_related("point_of_sale").prefetch_related("items", "taxes")
 
     def get_serializer_context(self):
         """

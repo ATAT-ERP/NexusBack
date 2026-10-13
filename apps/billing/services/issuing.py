@@ -3,9 +3,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.billing.enums.invoice import DocumentType, InvoiceStatus
-from apps.billing.models import Invoice
+from apps.billing.models import Invoice, InvoiceTax
 from apps.billing.services import rules
-from apps.billing.services.calculations import calculate_invoice_totals
+from apps.billing.services.calculations import (
+    calculate_invoice_totals,
+    calculate_vat_tax_details,
+)
 from apps.billing.services.numbering import next_invoice_number
 from apps.company.models import is_valid_tax_id
 
@@ -32,11 +35,12 @@ def issue_invoice(invoice):
     """
     Emite un comprobante en borrador dentro de una única transacción:
     valida, recalcula, obtiene el correlativo, copia el snapshot del
-    emisor, fija número y fecha, guarda los totales finales y cambia el
-    estado a ISSUED. Si cualquier paso falla se revierte todo, incluido
-    el incremento del correlativo. La fila de la factura se bloquea para
-    que dos emisiones simultáneas de la misma factura no convivan.
-    @version 1.0
+    emisor, fija número y fecha, guarda los totales finales, genera el
+    detalle de IVA por alícuota y cambia el estado a ISSUED. Si cualquier
+    paso falla se revierte todo, incluido el incremento del correlativo.
+    La fila de la factura se bloquea para que dos emisiones simultáneas de
+    la misma factura no convivan.
+    @version 1.1
     @author Thiago
     """
     with transaction.atomic():
@@ -52,7 +56,8 @@ def issue_invoice(invoice):
         issue_date = timezone.localdate()
 
         _validate_invoice(invoice, fiscal_profile, company, items, issue_date)
-        totals = calculate_invoice_totals([_item_values(item) for item in items])
+        item_values = [_item_values(item) for item in items]
+        totals = calculate_invoice_totals(item_values)
 
         invoice.number = next_invoice_number(point_of_sale, invoice.invoice_type)
         invoice.issue_date = issue_date
@@ -66,6 +71,11 @@ def issue_invoice(invoice):
             setattr(invoice, field, value)
         invoice.status = InvoiceStatus.ISSUED
         invoice.save(update_fields=UPDATED_FIELDS)
+
+        InvoiceTax.objects.bulk_create(
+            InvoiceTax(invoice=invoice, **detail)
+            for detail in calculate_vat_tax_details(item_values)
+        )
 
         return invoice
 
@@ -98,6 +108,7 @@ def _validate_invoice(invoice, fiscal_profile, company, items, issue_date):
         raise ValidationError({"items": "El comprobante debe tener al menos un ítem."})
     for item in items:
         rules.validate_item(**_item_values(item))
+        rules.validate_vat_discrimination(invoice.invoice_type, item.tax_treatment)
 
     _validate_receiver(invoice)
     rules.validate_invoice_type(

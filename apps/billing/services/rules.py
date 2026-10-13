@@ -141,3 +141,19 @@ def validate_invoice_type(invoice_type, issuer_vat_condition, receiver_vat_condi
             )
         }
     )
+
+
+def validate_vat_discrimination(invoice_type, tax_treatment):
+    """
+    Una Factura C no discrimina IVA, por lo que sus ítems no pueden ser
+    gravados; los demás tipos de comprobante sí admiten ítems gravados.
+    @version 1.0
+    @author Antonio
+    """
+    if (
+        InvoiceType(invoice_type) == InvoiceType.INVOICE_C
+        and tax_treatment == TaxTreatment.TAXED
+    ):
+        raise ValidationError(
+            {"items": "Una Factura C no puede discriminar IVA en sus ítems."}
+        )

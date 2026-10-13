@@ -1,10 +1,11 @@
 from decimal import Decimal
 from unittest import TestCase
 
-from apps.billing.enums.tax import TaxTreatment, VATRate
+from apps.billing.enums.tax import TaxTreatment, TaxType, VATRate
 from apps.billing.services.calculations import (
     calculate_invoice_totals,
     calculate_item_amounts,
+    calculate_vat_tax_details,
     round_amount,
 )
 
@@ -127,4 +128,111 @@ class InvoiceTotalsTests(TestCase):
                 "vat_amount": Decimal("169.80"),
                 "total": Decimal("1555.31"),
             },
+        )
+
+
+class VATTaxDetailsTests(TestCase):
+    def test_vat_is_detailed_by_rate_ordered_by_percentage(self):
+        items = [
+            {
+                "quantity": Decimal("2"),
+                "unit_price": Decimal("100"),
+                "discount": Decimal("10"),
+                "tax_treatment": TaxTreatment.TAXED,
+                "vat_rate": VATRate.TWENTY_ONE,
+            },
+            {
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("1000"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.TAXED,
+                "vat_rate": VATRate.TEN_AND_HALF,
+            },
+            {
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("100"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.TAXED,
+                "vat_rate": VATRate.ZERO,
+            },
+        ]
+
+        self.assertEqual(
+            calculate_vat_tax_details(items),
+            [
+                {
+                    "tax_type": TaxType.VAT,
+                    "vat_rate": VATRate.ZERO,
+                    "base_amount": Decimal("100.00"),
+                    "amount": Decimal("0.00"),
+                },
+                {
+                    "tax_type": TaxType.VAT,
+                    "vat_rate": VATRate.TEN_AND_HALF,
+                    "base_amount": Decimal("1000.00"),
+                    "amount": Decimal("105.00"),
+                },
+                {
+                    "tax_type": TaxType.VAT,
+                    "vat_rate": VATRate.TWENTY_ONE,
+                    "base_amount": Decimal("180.00"),
+                    "amount": Decimal("37.80"),
+                },
+            ],
+        )
+
+    def test_items_without_discriminated_vat_have_no_detail(self):
+        items = [
+            {
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("100"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.EXEMPT,
+            },
+            {
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("50"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.UNTAXED,
+            },
+            {
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("25"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.NOT_DISCRIMINATED,
+            },
+        ]
+
+        self.assertEqual(calculate_vat_tax_details(items), [])
+
+    def test_invoice_vat_amount_matches_tax_details(self):
+        items = [
+            {
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("1000"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.TAXED,
+                "vat_rate": VATRate.TEN_AND_HALF,
+            },
+            {
+                "quantity": Decimal("3"),
+                "unit_price": Decimal("33.335"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.TAXED,
+                "vat_rate": VATRate.TWENTY_SEVEN,
+            },
+            {
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("25.50"),
+                "discount": Decimal("0"),
+                "tax_treatment": TaxTreatment.NOT_DISCRIMINATED,
+            },
+        ]
+
+        totals = calculate_invoice_totals(items)
+        details = calculate_vat_tax_details(items)
+
+        self.assertEqual(
+            totals["vat_amount"],
+            sum(detail["amount"] for detail in details),
         )

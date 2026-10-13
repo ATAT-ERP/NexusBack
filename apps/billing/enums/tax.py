@@ -41,3 +41,14 @@ class TaxTreatment(models.TextChoices):
     EXEMPT = "exempt"
     UNTAXED = "untaxed"
     NOT_DISCRIMINATED = "not_discriminated"
+
+
+class TaxType(models.TextChoices):
+    """
+    Tipo de tributo detallado en un comprobante. Por ahora sólo se usa IVA;
+    la tabla de detalle admite otros tributos sin cambiar las views.
+    @version 1.0
+    @author Antonio
+    """
+
+    VAT = "vat", "IVA"

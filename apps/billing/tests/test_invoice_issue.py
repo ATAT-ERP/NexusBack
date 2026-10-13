@@ -122,6 +122,94 @@ class InvoiceIssueTests(InvoiceFlowTestCase):
         self.assertEqual(invoice.vat_amount, Decimal("42.00"))
         self.assertEqual(invoice.total, Decimal("242.00"))
 
+    def add_item(self, invoice, **overrides):
+        data = {
+            "invoice": invoice,
+            "description": "Ítem",
+            "quantity": Decimal("1"),
+            "unit_price": Decimal("100.00"),
+            "discount": Decimal("0"),
+            "tax_treatment": TaxTreatment.TAXED,
+            "vat_rate": VATRate.TWENTY_ONE,
+        }
+        data.update(overrides)
+        return InvoiceItem.objects.create(**data)
+
+    def test_issue_creates_vat_detail_per_rate(self):
+        invoice = self.make_invoice(with_item=False)
+        self.add_item(
+            invoice,
+            quantity=Decimal("1"),
+            unit_price=Decimal("1000.00"),
+            vat_rate=VATRate.TEN_AND_HALF,
+        )
+        self.add_item(
+            invoice,
+            quantity=Decimal("2"),
+            unit_price=Decimal("100.00"),
+            discount=Decimal("10"),
+            vat_rate=VATRate.TWENTY_ONE,
+        )
+
+        response = self.client.post(self.issue_url(invoice))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {
+                (tax["vat_rate"], tax["base_amount"], tax["amount"])
+                for tax in response.data["taxes"]
+            },
+            {
+                (VATRate.TEN_AND_HALF, "1000.00", "105.00"),
+                (VATRate.TWENTY_ONE, "180.00", "37.80"),
+            },
+        )
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.taxes.count(), 2)
+        self.assertEqual(invoice.vat_amount, Decimal("142.80"))
+
+    def test_issue_without_discriminated_vat_has_no_tax_detail(self):
+        invoice = self.make_invoice(with_item=False)
+        self.add_item(
+            invoice,
+            quantity=Decimal("1"),
+            unit_price=Decimal("100.00"),
+            tax_treatment=TaxTreatment.NOT_DISCRIMINATED,
+            vat_rate=None,
+        )
+
+        response = self.client.post(self.issue_url(invoice))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["taxes"], [])
+        self.assertEqual(response.data["vat_amount"], "0.00")
+
+    def test_rejects_invoice_c_that_discriminates_vat(self):
+        self.fiscal_profile.vat_condition = VATCondition.MONOTAX
+        self.fiscal_profile.save()
+        invoice = self.make_invoice(invoice_type=InvoiceType.INVOICE_C)
+
+        self.assert_issue_rejected(invoice, "items")
+
+    def test_invoice_c_without_discriminated_vat_is_issued(self):
+        self.fiscal_profile.vat_condition = VATCondition.MONOTAX
+        self.fiscal_profile.save()
+        invoice = self.make_invoice(with_item=False, invoice_type=InvoiceType.INVOICE_C)
+        self.add_item(
+            invoice,
+            quantity=Decimal("1"),
+            unit_price=Decimal("100.00"),
+            tax_treatment=TaxTreatment.NOT_DISCRIMINATED,
+            vat_rate=None,
+        )
+
+        response = self.client.post(self.issue_url(invoice))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, InvoiceStatus.ISSUED)
+        self.assertEqual(invoice.taxes.count(), 0)
+
     def test_first_number_is_one_and_formatted(self):
         invoice = self.make_invoice()
 

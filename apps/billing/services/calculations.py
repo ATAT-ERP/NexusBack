@@ -1,6 +1,6 @@
 from decimal import ROUND_HALF_UP, Decimal
 
-from apps.billing.enums.tax import TaxTreatment, VATRate
+from apps.billing.enums.tax import TaxTreatment, TaxType, VATRate
 
 CENT = Decimal("0.01")
 
@@ -88,3 +88,34 @@ def calculate_invoice_totals(items):
         "vat_amount": vat_amount,
         "total": round_amount(net_taxed + net_untaxed + net_exempt + vat_amount),
     }
+
+
+def calculate_vat_tax_details(items):
+    """
+    Agrupa el IVA discriminado por alícuota. Cada ítem es un dict con los
+    argumentos de calculate_item_amounts. Devuelve una lista con un detalle
+    por alícuota (base imponible e importe), ordenada por porcentaje; los
+    ítems que no discriminan IVA no generan detalle.
+    @version 1.0
+    @author Antonio
+    """
+    grouped = {}
+
+    for item in items:
+        if item["tax_treatment"] != TaxTreatment.TAXED:
+            continue
+        amounts = calculate_item_amounts(**item)
+        base, amount = grouped.get(item["vat_rate"], (Decimal("0.00"), Decimal("0.00")))
+        grouped[item["vat_rate"]] = (base + amounts["net"], amount + amounts["vat"])
+
+    return [
+        {
+            "tax_type": TaxType.VAT,
+            "vat_rate": vat_rate,
+            "base_amount": round_amount(base),
+            "amount": round_amount(amount),
+        }
+        for vat_rate, (base, amount) in sorted(
+            grouped.items(), key=lambda detail: VAT_RATE_PERCENTAGES[detail[0]]
+        )
+    ]

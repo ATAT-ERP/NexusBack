@@ -4,8 +4,12 @@ from unittest import TestCase
 from django.core.exceptions import ValidationError
 
 from apps.billing.enums.invoice import InvoiceConcept, InvoiceType
-from apps.billing.enums.tax import VATCondition
-from apps.billing.services.rules import validate_concept_dates, validate_invoice_type
+from apps.billing.enums.tax import TaxTreatment, VATCondition
+from apps.billing.services.rules import (
+    validate_concept_dates,
+    validate_invoice_type,
+    validate_vat_discrimination,
+)
 
 
 class InvoiceTypeRulesTests(TestCase):
@@ -69,3 +73,23 @@ class ConceptDatesRulesTests(TestCase):
     def test_products_and_services_require_service_dates(self):
         with self.assertRaises(ValidationError):
             validate_concept_dates(InvoiceConcept.PRODUCTS_AND_SERVICES, None, None)
+
+
+class VATDiscriminationRulesTests(TestCase):
+    def test_invoice_c_cannot_discriminate_vat(self):
+        with self.assertRaises(ValidationError):
+            validate_vat_discrimination(InvoiceType.INVOICE_C, TaxTreatment.TAXED)
+
+    def test_invoice_c_accepts_items_without_discriminated_vat(self):
+        for treatment in (
+            TaxTreatment.EXEMPT,
+            TaxTreatment.UNTAXED,
+            TaxTreatment.NOT_DISCRIMINATED,
+        ):
+            with self.subTest(treatment=treatment):
+                validate_vat_discrimination(InvoiceType.INVOICE_C, treatment)
+
+    def test_other_invoice_types_admit_discriminated_vat(self):
+        for invoice_type in (InvoiceType.INVOICE_A, InvoiceType.INVOICE_B):
+            with self.subTest(invoice_type=invoice_type):
+                validate_vat_discrimination(invoice_type, TaxTreatment.TAXED)

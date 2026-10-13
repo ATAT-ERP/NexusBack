@@ -2,13 +2,15 @@ from rest_framework import serializers
 
 from apps.billing.models import Invoice, PointOfSale
 from apps.billing.serializers.invoice_item import InvoiceItemSerializer
+from apps.billing.serializers.invoice_tax import InvoiceTaxSerializer
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
     """
-    Valida y expone un comprobante. Los totales, el número, el estado y el
-    snapshot del emisor son de solo lectura: los calcula el backend.
-    @version 1.1
+    Valida y expone un comprobante. Los totales, el detalle de tributos, el
+    número, el estado y el snapshot del emisor son de solo lectura: los
+    calcula el backend.
+    @version 1.2
     @author Uziel
     """
 
@@ -23,6 +25,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         source="get_concept_display", read_only=True
     )
     items = InvoiceItemSerializer(many=True, read_only=True)
+    taxes = InvoiceTaxSerializer(many=True, read_only=True)
 
     class Meta:
         model = Invoice
@@ -51,6 +54,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "net_untaxed",
             "net_exempt",
             "vat_amount",
+            "taxes",
             "total",
             "issuer_legal_name",
             "issuer_tax_id",
