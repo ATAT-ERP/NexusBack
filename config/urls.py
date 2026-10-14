@@ -7,7 +7,9 @@ from config.health import HealthCheckView
 
 urlpatterns = [
     path("api/health/", HealthCheckView.as_view(), name="health-check"),
-    path("api/", include("apps.documents.api.urls")),
+    path("api/", include("apps.cloud.urls")),
     path("api/", include("apps.users.api.urls")),
     path("api/", include("apps.company.api.urls")),
+    path("api/billing/", include("apps.billing.urls")),
+    path("api/accounting/", include("apps.accounting.urls")),
 ]

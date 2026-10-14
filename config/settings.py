@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+if not os.getenv("NEXUS_SKIP_DOTENV"):
+    load_dotenv(BASE_DIR / ".env")
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -51,9 +52,11 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "corsheaders",
-    "apps.documents.apps.DocumentsConfig",
+    "apps.cloud.apps.CloudConfig",
     "apps.users.apps.UsersConfig",
     "apps.company.apps.CompanyConfig",
+    "apps.billing.apps.BillingConfig",
+    "apps.accounting.apps.AccountingConfig",
 ]
 
 REST_FRAMEWORK = {
