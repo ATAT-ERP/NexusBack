@@ -57,7 +57,7 @@ class CompanyScopedInvoiceView(CompanyScopedBillingView):
         self.save_in_company(serializer)
 
     def perform_update(self, serializer):
-        if serializer.instance.status == InvoiceStatus.ISSUED:
+        if serializer.instance.status != InvoiceStatus.DRAFT:
             raise serializers.ValidationError(
                 {"status": "Un comprobante emitido no puede modificarse."}
             )

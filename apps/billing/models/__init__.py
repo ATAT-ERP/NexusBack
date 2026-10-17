@@ -4,6 +4,9 @@ from apps.billing.models.invoice_sequence import InvoiceSequence
 from apps.billing.models.invoice import Invoice
 from apps.billing.models.invoice_item import InvoiceItem
 from apps.billing.models.invoice_tax import InvoiceTax
+from apps.billing.models.credit_note import CreditNote
+from apps.billing.models.credit_note_invoice import CreditNoteInvoice
+from apps.billing.models.credit_note_item import CreditNoteItem
 
 __all__ = (
     "FiscalProfile",
@@ -12,4 +15,7 @@ __all__ = (
     "Invoice",
     "InvoiceItem",
     "InvoiceTax",
+    "CreditNote",
+    "CreditNoteInvoice",
+    "CreditNoteItem",
 )

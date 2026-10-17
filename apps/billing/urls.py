@@ -1,6 +1,13 @@
 from django.urls import path
 
 from apps.billing.views import (
+    CreditNoteDetailView,
+    CreditNoteInvoiceDetailView,
+    CreditNoteInvoiceListCreateView,
+    CreditNoteIssueView,
+    CreditNoteItemDetailView,
+    CreditNoteItemListCreateView,
+    CreditNoteListCreateView,
     FiscalProfileView,
     InvoiceDetailView,
     InvoiceIssueView,
@@ -64,5 +71,40 @@ urlpatterns = [
         "companies/<uuid:company_id>/invoices/<int:invoice_id>/items/<int:pk>/",
         InvoiceItemDetailView.as_view(),
         name="company-invoice-item-detail",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/",
+        CreditNoteListCreateView.as_view(),
+        name="company-credit-notes",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/<int:pk>/",
+        CreditNoteDetailView.as_view(),
+        name="company-credit-note-detail",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/<int:pk>/issue/",
+        CreditNoteIssueView.as_view(),
+        name="company-credit-note-issue",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/<int:credit_note_id>/invoices/",
+        CreditNoteInvoiceListCreateView.as_view(),
+        name="company-credit-note-invoices",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/<int:credit_note_id>/invoices/<int:pk>/",
+        CreditNoteInvoiceDetailView.as_view(),
+        name="company-credit-note-invoice-detail",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/<int:credit_note_id>/items/",
+        CreditNoteItemListCreateView.as_view(),
+        name="company-credit-note-items",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/<int:credit_note_id>/items/<int:pk>/",
+        CreditNoteItemDetailView.as_view(),
+        name="company-credit-note-item-detail",
     ),
 ]
