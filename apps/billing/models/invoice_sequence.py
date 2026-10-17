@@ -1,6 +1,6 @@
 from django.db import models
 
-from apps.billing.enums import InvoiceType
+from apps.billing.enums import CreditNoteType, InvoiceType
 
 
 class InvoiceSequence(models.Model):
@@ -17,7 +17,9 @@ class InvoiceSequence(models.Model):
         on_delete=models.CASCADE,
         related_name="invoice_sequences",
     )
-    invoice_type = models.PositiveSmallIntegerField(choices=InvoiceType.choices)
+    invoice_type = models.PositiveSmallIntegerField(
+        choices=InvoiceType.choices + CreditNoteType.choices
+    )
     last_number = models.PositiveIntegerField(default=0)
 
     class Meta:
