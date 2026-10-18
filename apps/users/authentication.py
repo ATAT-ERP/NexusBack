@@ -1,7 +1,7 @@
 import httpx
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import DatabaseError, IntegrityError
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 from rest_framework.exceptions import APIException, AuthenticationFailed, PermissionDenied
 from supabase import create_client
@@ -24,7 +24,7 @@ class SupabaseBearerAuthentication(BaseAuthentication):
         """
         Valida un Bearer presente y devuelve el perfil local activo del usuario.
 
-        @version 1.1
+        @version 1.2
         @param request: Solicitud HTTP autenticada mediante Bearer.
         @author Agustin
         """
@@ -41,7 +41,7 @@ class SupabaseBearerAuthentication(BaseAuthentication):
             raise self._authentication_error() from error
 
         try:
-            user = User.objects.filter(id=auth_user.id).first()
+            user = sync_user_profile(auth_user)
         except DatabaseError as error:
             raise APIException(
                 {
@@ -117,11 +117,30 @@ def register(email, password):
     Registra un usuario mediante Supabase Auth.
 
     @version 1.0
-    @param email Correo electrónico utilizado para crear la cuenta.
-    @param password Contraseña utilizada para crear la cuenta.
+    @param {email} Correo electrónico utilizado para crear la cuenta.
+    @param {password} Contraseña utilizada para crear la cuenta.
     @author Agustin
     """
     return supabase.auth.sign_up({"email": email, "password": password})
+
+
+def sync_user_profile(auth_user):
+    """
+    Crea el perfil local mínimo para una identidad autenticada por Supabase.
+
+    @version 1.0
+    @param {auth_user} Identidad devuelta por una respuesta autenticada de Supabase.
+    @author Agustin
+    """
+    try:
+        user, _ = User.objects.get_or_create(
+            id=auth_user.id,
+            defaults={"email": auth_user.email},
+        )
+    except IntegrityError:
+        # Otro perfil ya usa ese email; no vincularlo con una identidad distinta.
+        return User.objects.filter(id=auth_user.id).first()
+    return user
 
 
 def login(email, password):
@@ -129,8 +148,8 @@ def login(email, password):
     Inicia sesión mediante Supabase Auth.
 
     @version 1.0
-    @param email Correo electrónico de la cuenta.
-    @param password Contraseña de la cuenta.
+    @param {email} Correo electrónico de la cuenta.
+    @param {password} Contraseña de la cuenta.
     @author Agustin
     """
     return supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -141,7 +160,7 @@ def logout(access_token):
     Cierra localmente la sesión de Supabase representada por un access token.
 
     @version 1.0
-    @param access_token: JWT Bearer de la sesión que se desea cerrar.
+    @param {access_token}: JWT Bearer de la sesión que se desea cerrar.
     @author Agustin
     """
     response = httpx.post(
@@ -160,9 +179,9 @@ def change_password(access_token, current_password, new_password):
     Actualiza la contraseña del usuario representado por un Bearer vigente.
 
     @version 1.0
-    @param access_token JWT Bearer de la sesión autenticada.
-    @param current_password Contraseña actual proporcionada por el usuario.
-    @param new_password Nueva contraseña solicitada por el usuario.
+    @param {access_token} JWT Bearer de la sesión autenticada.
+    @param {current_password} Contraseña actual proporcionada por el usuario.
+    @param {new_password} Nueva contraseña solicitada por el usuario.
     @author Agustin
     """
     response = httpx.put(

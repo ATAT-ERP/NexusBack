@@ -59,7 +59,7 @@ PostgreSQL
 
 - **URL / Router:** expone los endpoints.
 - **View / ViewSet:** gestiona el flujo HTTP y construye las respuestas.
-- **Serializer:** transforma datos y aplica validación defensiva.
+- **Serializer:** transforma datos y valida el contrato de entrada.
 - **Model / ORM:** representa y persiste los datos.
 - **Services / Selectors:** separan lógica o consultas sólo si su complejidad lo
   requiere.

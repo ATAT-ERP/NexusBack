@@ -4,6 +4,13 @@ from apps.users.models import User
 
 
 class UserSerializer(serializers.ModelSerializer):
+    """
+    Representa el perfil y permite cambiar únicamente los datos personales.
+
+    @version 1.0
+    @author Agustin
+    """
+
     class Meta:
         model = User
         fields = (
@@ -15,7 +22,31 @@ class UserSerializer(serializers.ModelSerializer):
             "is_active",
             "is_system_admin",
         )
-        read_only_fields = ("id", "email", "is_active", "is_system_admin")
+        read_only_fields = (
+            "id",
+            "email",
+            "avatar_path",
+            "is_active",
+            "is_system_admin",
+        )
+
+    def to_internal_value(self, data):
+        """
+        Rechaza campos ajenos a nombre y apellido en escrituras del perfil.
+
+        @version 1.0
+        @author Agustin
+        """
+        values = super().to_internal_value(data)
+        protected_fields = set(data) - {"first_name", "last_name"}
+        if protected_fields:
+            raise serializers.ValidationError(
+                {
+                    field: ["Este campo no puede modificarse."]
+                    for field in protected_fields
+                }
+            )
+        return values
 
 
 class RegisterSerializer(serializers.Serializer):
