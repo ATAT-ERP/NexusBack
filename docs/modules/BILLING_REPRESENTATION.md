@@ -1,5 +1,8 @@
 # Representaciones de Billing en Cloud
 
+La configuración fiscal, los comprobantes y el flujo de emisión se documentan
+en [BILLING.md](BILLING.md). Este documento concentra su integración con Cloud.
+
 ## Auditoría y punto de integración
 
 - `apps/cloud/models.py`: `File` pertenece a una Company mediante FK protegida.
@@ -23,9 +26,8 @@ Billing no importa el cliente de Storage ni genera signed URLs.
 
 ## Formato e historial
 
-Se usa PDF: es imprimible y Cloud ya lo admite. No había un generador en las
-dependencias del proyecto. Se incorpora ReportLab para paginar texto variable
-y tablas sin implementar un escritor PDF propio ni un motor de templates.
+Se usa PDF: es imprimible y Cloud ya lo admite. ReportLab, incluido en las
+dependencias del proyecto, pagina texto variable y tablas.
 
 El PDF contiene tipo, número, fecha, snapshots del emisor y receptor, ítems,
 condiciones tributarias y totales persistidos. En facturas incluye concepto,
@@ -71,9 +73,13 @@ La emisión no genera archivos ni llama a Cloud. Se solicita la representación
 en otra operación después de emitir. Un fallo no modifica estado, número,
 snapshot ni secuencia del comprobante. No hay generación automática ni worker.
 
-Los fallos de Storage responden `502` con `NEX-DOC-003`. Los fallos de generación
-o persistencia responden `500` con `NEX-BIL-001`. Los errores de validación de
-Cloud se conservan como `400`. Se puede reintentar el mismo `POST`.
+La view traduce `StorageException` y `httpx.RequestError` a `502` con
+`NEX-DOC-003`; `LayoutError`, `ValueError` y `DatabaseError` a `500` con
+`NEX-BIL-001`. Estas respuestas incluyen `code` y `message`, según
+[ERROR_CODES.md](../ERROR_CODES.md). Las demás excepciones siguen el manejo
+estándar; no se captura cualquier fallo como error de representación.
+Los errores de validación de Cloud se conservan como `400`.
+Se puede reintentar el mismo `POST`.
 
 La asociación y la metadata se guardan en una transacción independiente de la
 emisión. Si falla la persistencia se revierte la metadata y Cloud intenta limpiar
