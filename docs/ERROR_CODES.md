@@ -46,6 +46,7 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-DOC-005` | Supabase Storage no pudo devolver el contenido del archivo para su lectura. | `502 Bad Gateway` | `No fue posible leer el archivo almacenado.` |
 | `NEX-DOC-006` | El contenido asociado a un archivo `.xlsx` no es un libro XLSX válido. | `400 Bad Request` | `El archivo XLSX no es válido.` |
 | `NEX-DOC-007` | La hoja solicitada no existe en el archivo XLSX. | `404 Not Found` | `Hoja no encontrada.` |
+| `NEX-BIL-001` | No se pudo generar o asociar la representación de un comprobante emitido. La emisión se conserva y la operación admite reintento. | `500 Internal Server Error` | `No fue posible generar la representación.` |
 | `NEX-PERM-001` | El usuario autenticado no posee autorización suficiente para la operación. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-PERM-002` | La operación requiere `is_system_admin = True`, pero el usuario no es administrador global. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-COM-001` | Los datos de entrada enviados al módulo `company` no superan la validación, incluido un CUIT estructuralmente inválido o duplicado. | `400 Bad Request` | `Los datos enviados no son válidos.` |

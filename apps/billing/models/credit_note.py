@@ -9,7 +9,7 @@ class CreditNote(models.Model):
     Nota de Crédito emitida desde un punto de venta que acredita total o
     parcialmente una o más facturas. El número, la fecha de emisión y los
     snapshots del emisor y del receptor permanecen vacíos hasta la emisión.
-    @version 1.0
+    @version 1.1
     @author Uziel
     """
 
@@ -65,6 +65,15 @@ class CreditNote(models.Model):
     )
     issuer_gross_income = models.CharField(max_length=30, blank=True, null=True)
     issuer_activity_start_date = models.DateField(blank=True, null=True)
+
+    representation_file = models.OneToOneField(
+        "documents.File",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        editable=False,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

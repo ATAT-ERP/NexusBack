@@ -49,7 +49,7 @@ DOCUMENT_STORAGE_SAFE_LIMIT_BYTES = (
 )
 
 INSTALLED_APPS = [
-    "django.contrib.staticfiles",
+    "config.staticfiles.StaticFilesConfig",
     "rest_framework",
     "corsheaders",
     "apps.cloud.apps.CloudConfig",
@@ -60,6 +60,7 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "UNAUTHENTICATED_USER": None,
 }
 
@@ -135,4 +136,5 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

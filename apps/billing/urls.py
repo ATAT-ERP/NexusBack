@@ -8,12 +8,14 @@ from apps.billing.views import (
     CreditNoteItemDetailView,
     CreditNoteItemListCreateView,
     CreditNoteListCreateView,
+    CreditNoteRepresentationView,
     FiscalProfileView,
     InvoiceDetailView,
     InvoiceIssueView,
     InvoiceItemDetailView,
     InvoiceItemListCreateView,
     InvoiceListCreateView,
+    InvoiceRepresentationView,
     PointOfSaleActivateView,
     PointOfSaleDeactivateView,
     PointOfSaleDetailView,
@@ -22,6 +24,16 @@ from apps.billing.views import (
 
 
 urlpatterns = [
+    path(
+        "companies/<uuid:company_id>/invoices/<int:pk>/representation/",
+        InvoiceRepresentationView.as_view(),
+        name="company-invoice-representation",
+    ),
+    path(
+        "companies/<uuid:company_id>/credit-notes/<int:pk>/representation/",
+        CreditNoteRepresentationView.as_view(),
+        name="company-credit-note-representation",
+    ),
     path(
         "companies/<uuid:company_id>/fiscal-profile/",
         FiscalProfileView.as_view(),
