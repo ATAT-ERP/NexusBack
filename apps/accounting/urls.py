@@ -3,17 +3,35 @@ from django.urls import path
 from apps.accounting.views import (
     AccountDetailView,
     AccountListCreateView,
+    DailyJournalCSVView,
     DailyJournalView,
+    GeneralLedgerCSVView,
     GeneralLedgerView,
     JournalEntryDetailView,
     JournalEntryListView,
     JournalEntryPublishView,
     JournalEntryReverseView,
+    TrialBalanceCSVView,
     TrialBalanceView,
 )
 
 
 urlpatterns = [
+    path(
+        "companies/<uuid:company_id>/reports/daily-journal/export/",
+        DailyJournalCSVView.as_view(),
+        name="daily-journal-export",
+    ),
+    path(
+        "companies/<uuid:company_id>/reports/general-ledger/<int:account_id>/export/",
+        GeneralLedgerCSVView.as_view(),
+        name="general-ledger-export",
+    ),
+    path(
+        "companies/<uuid:company_id>/reports/trial-balance/export/",
+        TrialBalanceCSVView.as_view(),
+        name="trial-balance-export",
+    ),
     path(
         "companies/<uuid:company_id>/journal-entries/<int:pk>/publish/",
         JournalEntryPublishView.as_view(),

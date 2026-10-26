@@ -18,9 +18,9 @@ urlpatterns = [path("api/accounting/", include("apps.accounting.urls"))]
 
 
 @override_settings(ROOT_URLCONF=__name__)
-class AccountingQueryTests(APITestCase):
+class AccountingReportTestCase(APITestCase):
     """
-    Verifica el Historial, el Libro Diario, el Libro Mayor y Sumas y Saldos.
+    Prepara datos compartidos para las consultas y exportaciones contables.
 
     @version 1.0
     @author Agustin
@@ -170,6 +170,15 @@ class AccountingQueryTests(APITestCase):
             f"/api/accounting/companies/{self.company.pk}"
             f"/reports/general-ledger/{account.pk}/"
         )
+
+
+class AccountingQueryTests(AccountingReportTestCase):
+    """
+    Verifica el Historial, el Libro Diario, el Libro Mayor y Sumas y Saldos.
+
+    @version 1.0
+    @author Agustin
+    """
 
     def test_history_lists_only_valid_entries_in_chronological_order(self):
         """

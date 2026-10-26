@@ -1,8 +1,10 @@
+import csv
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Prefetch, Sum
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied, ValidationError as APIValidationError
@@ -454,4 +456,98 @@ class TrialBalanceView(JournalEntryHistoryMixin, generics.ListAPIView):
             .annotate(total_debit=Sum("debit"), total_credit=Sum("credit"))
             .annotate(balance=F("total_debit") - F("total_credit"))
             .order_by("account__code")
+        )
+
+
+def csv_response(filename, headers, rows):
+    """
+    Escribe filas serializadas en CSV UTF-8 con BOM para su descarga en Excel.
+
+    @version 1.0
+    """
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.write("\ufeff")
+    writer = csv.writer(response)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    return response
+
+
+class DailyJournalCSVView(DailyJournalView):
+    """Exporta el Libro Diario usando su consulta y serialización actuales.
+
+    @version 1.0
+    """
+
+    def get(self, request, *args, **kwargs):
+        """Descarga una fila por movimiento con los datos del asiento.
+
+        @version 1.0
+        """
+        report = super().get(request, *args, **kwargs).data
+        return csv_response(
+            f"libro-diario-{self.kwargs['company_id']}.csv",
+            (
+                "Fecha contable", "Número de asiento", "Descripción del asiento",
+                "Estado", "Moneda", "Código de cuenta", "Nombre de cuenta",
+                "Descripción del movimiento", "Debe", "Haber",
+            ),
+            (
+                (
+                    entry["accounting_date"], entry["number"], entry["description"],
+                    entry["status"], entry["currency"], line["account_code"],
+                    line["account_name"], line["description"], line["debit"],
+                    line["credit"],
+                )
+                for entry in report
+                for line in entry["lines"]
+            ),
+        )
+
+
+class GeneralLedgerCSVView(GeneralLedgerView):
+    """Exporta el Libro Mayor conservando su saldo inicial y acumulado.
+
+    @version 1.0
+    """
+
+    def get(self, request, *args, **kwargs):
+        """Descarga los movimientos serializados de la cuenta autorizada.
+
+        @version 1.0
+        """
+        report = super().get(request, *args, **kwargs).data
+        return csv_response(
+            f"libro-mayor-{self.kwargs['company_id']}-{self.kwargs['account_id']}.csv",
+            ("Fecha contable", "Número de asiento", "Descripción", "Debe", "Haber", "Saldo"),
+            (
+                (
+                    row["accounting_date"], row["entry_number"], row["description"],
+                    row["debit"], row["credit"], row["balance"],
+                )
+                for row in report
+            ),
+        )
+
+
+class TrialBalanceCSVView(TrialBalanceView):
+    """Exporta Sumas y Saldos reutilizando el agregado contable existente.
+
+    @version 1.0
+    """
+
+    def get(self, request, *args, **kwargs):
+        """Descarga los totales serializados por cuenta del rango consultado.
+
+        @version 1.0
+        """
+        report = super().get(request, *args, **kwargs).data
+        return csv_response(
+            f"sumas-y-saldos-{self.kwargs['company_id']}.csv",
+            ("Código de cuenta", "Nombre de cuenta", "Total Debe", "Total Haber", "Saldo"),
+            (
+                (row["code"], row["name"], row["total_debit"], row["total_credit"], row["balance"])
+                for row in report
+            ),
         )
