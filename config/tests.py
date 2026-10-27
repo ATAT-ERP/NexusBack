@@ -55,7 +55,7 @@ class SettingsEnvironmentTests(SimpleTestCase):
                 "'CSRF_TRUSTED_ORIGINS', 'SECURE_SSL_REDIRECT', 'SESSION_COOKIE_SECURE', "
                 "'CSRF_COOKIE_SECURE', 'SECURE_HSTS_SECONDS', "
                 "'SECURE_HSTS_INCLUDE_SUBDOMAINS', 'SECURE_HSTS_PRELOAD', "
-                "'SECURE_PROXY_SSL_HEADER', 'STORAGES', 'MIDDLEWARE', "
+                "'SECURE_PROXY_SSL_HEADER', "
                 "'DATABASES']}))",
             ],
             cwd=Path(__file__).resolve().parent.parent,
@@ -85,14 +85,6 @@ class SettingsEnvironmentTests(SimpleTestCase):
         self.assertFalse(configuration["SECURE_HSTS_INCLUDE_SUBDOMAINS"])
         self.assertFalse(configuration["SECURE_HSTS_PRELOAD"])
         self.assertIsNone(configuration["SECURE_PROXY_SSL_HEADER"])
-        self.assertEqual(
-            configuration["STORAGES"]["staticfiles"]["BACKEND"],
-            "django.contrib.staticfiles.storage.StaticFilesStorage",
-        )
-        self.assertNotIn(
-            "whitenoise.middleware.WhiteNoiseMiddleware",
-            configuration["MIDDLEWARE"],
-        )
 
     def test_explicit_lists_replace_defaults(self):
         """Respeta los hosts y orígenes configurados explícitamente.
@@ -140,9 +132,9 @@ class SettingsEnvironmentTests(SimpleTestCase):
                 self.assertIn(message, result.stderr)
 
     def test_production_enables_https_and_trusts_proxy_only_when_configured(self):
-        """Activa protecciones productivas sin los valores locales.
+        """Activa HTTPS y HSTS inicial sin extender la política a subdominios.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         for trust_proxy in ("False", "True"):
@@ -161,19 +153,30 @@ class SettingsEnvironmentTests(SimpleTestCase):
                 self.assertEqual(configuration["CSRF_TRUSTED_ORIGINS"], [])
                 for name in ("SECURE_SSL_REDIRECT", "SESSION_COOKIE_SECURE", "CSRF_COOKIE_SECURE"):
                     self.assertTrue(configuration[name])
-                self.assertEqual(configuration["SECURE_HSTS_SECONDS"], 31536000)
-                self.assertTrue(configuration["SECURE_HSTS_INCLUDE_SUBDOMAINS"])
-                self.assertTrue(configuration["SECURE_HSTS_PRELOAD"])
-                self.assertEqual(
-                    configuration["STORAGES"]["staticfiles"]["BACKEND"],
-                    "whitenoise.storage.CompressedManifestStaticFilesStorage",
-                )
-                self.assertIn(
-                    "whitenoise.middleware.WhiteNoiseMiddleware",
-                    configuration["MIDDLEWARE"],
-                )
+                self.assertEqual(configuration["SECURE_HSTS_SECONDS"], 3600)
+                self.assertFalse(configuration["SECURE_HSTS_INCLUDE_SUBDOMAINS"])
+                self.assertFalse(configuration["SECURE_HSTS_PRELOAD"])
                 self.assertEqual(configuration["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
                 self.assertEqual(
                     configuration["SECURE_PROXY_SSL_HEADER"],
                     ["HTTP_X_FORWARDED_PROTO", "https"] if trust_proxy == "True" else None,
                 )
+
+    def test_production_hsts_duration_can_be_overridden(self):
+        """Permite ajustar HSTS o dejar de emitirlo mediante el entorno.
+
+        @version 1.0
+        """
+        for seconds in (0, 86400):
+            with self.subTest(seconds=seconds):
+                result = self.load_settings(
+                    DJANGO_DEBUG="False",
+                    DJANGO_SECRET_KEY="configuration-tests-only-0123456789-abcdefghij-ABCDEFGHIJ",
+                    DJANGO_ALLOWED_HOSTS="api.example.com",
+                    DJANGO_SECURE_HSTS_SECONDS=str(seconds),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                configuration = json.loads(result.stdout)
+                self.assertEqual(configuration["SECURE_HSTS_SECONDS"], seconds)
+                self.assertFalse(configuration["SECURE_HSTS_INCLUDE_SUBDOMAINS"])
+                self.assertFalse(configuration["SECURE_HSTS_PRELOAD"])

@@ -76,12 +76,10 @@ if not DEBUG:
 SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
-# Producción usa HSTS de un año; DJANGO_SECURE_HSTS_SECONDS=0 lo desactiva.
+# Empezar con una hora en producción y ampliar tras verificar HTTPS.
 SECURE_HSTS_SECONDS = int(
-    os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000")
+    os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "3600")
 )
-SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
-SECURE_HSTS_PRELOAD = not DEBUG
 # Activar sólo tras un proxy de confianza que reemplace este encabezado.
 SECURE_PROXY_SSL_HEADER = (
     ("HTTP_X_FORWARDED_PROTO", "https")
@@ -116,7 +114,6 @@ REST_FRAMEWORK = {
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    *(["whitenoise.middleware.WhiteNoiseMiddleware"] if not DEBUG else []),
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -186,18 +183,6 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "/static/"
+STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-            if DEBUG
-            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
-        ),
-    },
-}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
