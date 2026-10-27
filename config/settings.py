@@ -27,17 +27,65 @@ if not SECRET_KEY:
     raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set in the environment.")
 
 DEBUG = env_bool("DJANGO_DEBUG")
+if not DEBUG and (
+    len(SECRET_KEY) < 50
+    or len(set(SECRET_KEY)) < 5
+    or SECRET_KEY.startswith("django-insecure-")
+):
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be a secure random key in production "
+        "(at least 50 characters, at least 5 distinct characters, no django-insecure- prefix)."
+    )
+
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",")
+    for host in os.getenv(
+        "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,10.0.2.2" if DEBUG else ""
+    ).split(",")
     if host.strip()
 ]
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
-    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173" if DEBUG else "",
+    ).split(",")
     if origin.strip()
 ]
 CORS_URLS_REGEX = r"^/api/.*$"
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+if not DEBUG:
+    if not ALLOWED_HOSTS or any("*" in host for host in ALLOWED_HOSTS):
+        raise ImproperlyConfigured(
+            "DJANGO_ALLOWED_HOSTS must contain explicit hosts without wildcards in production."
+        )
+    if any(
+        not origin.startswith("https://") or "*" in origin
+        for origin in CORS_ALLOWED_ORIGINS + CSRF_TRUSTED_ORIGINS
+    ):
+        raise ImproperlyConfigured(
+            "CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS must use HTTPS "
+            "without wildcards in production."
+        )
+
+SECURE_SSL_REDIRECT = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+# Empezar con una hora en producción y ampliar tras verificar HTTPS.
+SECURE_HSTS_SECONDS = int(
+    os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "3600")
+)
+# Activar sólo tras un proxy de confianza que reemplace este encabezado.
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https")
+    if env_bool("DJANGO_TRUST_PROXY_HEADERS")
+    else None
+)
 
 MEGABYTE = 1024 * 1024
 DOCUMENT_MAX_SIZE_BYTES = int(os.getenv("DOCUMENT_MAX_SIZE_MB", "6")) * MEGABYTE
@@ -49,7 +97,7 @@ DOCUMENT_STORAGE_SAFE_LIMIT_BYTES = (
 )
 
 INSTALLED_APPS = [
-    "django.contrib.staticfiles",
+    "config.staticfiles.StaticFilesConfig",
     "rest_framework",
     "corsheaders",
     "apps.cloud.apps.CloudConfig",
@@ -60,6 +108,7 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "UNAUTHENTICATED_USER": None,
 }
 
@@ -135,4 +184,5 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

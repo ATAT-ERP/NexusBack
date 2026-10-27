@@ -13,7 +13,7 @@ class Invoice(models.Model):
     """
     Comprobante emitido desde un punto de venta. El número, la fecha de
     emisión y el snapshot del emisor permanecen vacíos hasta la emisión.
-    @version 1.0
+    @version 1.1
     @author Uziel
     """
 
@@ -61,6 +61,15 @@ class Invoice(models.Model):
     )
     issuer_gross_income = models.CharField(max_length=30, blank=True, null=True)
     issuer_activity_start_date = models.DateField(blank=True, null=True)
+
+    representation_file = models.OneToOneField(
+        "documents.File",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        editable=False,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

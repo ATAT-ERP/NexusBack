@@ -16,6 +16,7 @@ if missing:
 # nor .env can supply production database or Supabase credentials to test imports.
 os.environ["NEXUS_SKIP_DOTENV"] = "1"
 os.environ.update(
+    DJANGO_DEBUG="True",
     DJANGO_SECRET_KEY="nexusback-tests-only-secret",
     POSTGRES_DB="nexusback-tests-only",
     POSTGRES_USER="nexusback-tests-only",

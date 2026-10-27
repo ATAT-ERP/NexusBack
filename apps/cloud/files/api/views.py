@@ -3,7 +3,6 @@ import uuid
 
 import httpx
 from django.conf import settings
-from django.db import DatabaseError
 from django.db.models import Q, Sum
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -14,7 +13,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from storage3.exceptions import StorageException
 
-from apps.company.models import CompanyMember
 from apps.cloud.excel import reader as excel_reader
 from apps.cloud.files.api.serializers import (
     CompanyQuery,
@@ -23,6 +21,7 @@ from apps.cloud.files.api.serializers import (
     ListQuerySerializer,
 )
 from apps.cloud.models import File
+from apps.cloud.files.services import check_company_access, create_file
 from apps.cloud.files.storage import storage_client
 from apps.users.authentication import SupabaseBearerAuthentication
 
@@ -62,55 +61,13 @@ class FileViewSet(
 
     def create(self, request, *args, **kwargs):
         """
-        Crea un documento y responde con su metadata pública.
+        Crea un documento mediante Cloud y responde con su metadata pública.
 
-        @version 1.1
+        @version 2.0
         @author Agustin
         """
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        file = self.perform_create(serializer)
+        file = create_file(user=request.user, data=request.data)
         return Response(FileSerializer(file).data, status=status.HTTP_201_CREATED)
-
-    def perform_create(self, serializer):
-        """
-        Sube el archivo, persiste su metadata y limpia Storage si falla la base.
-
-        @version 1.3
-        @author Agustin
-        """
-        uploaded_file = serializer.validated_data["file"]
-        company_id = serializer.validated_data["company_id"]
-        company = self._check_company_access(
-            company_id,
-            self.request.user,
-            write=True,
-        )
-        file_id = uuid.uuid4()
-        storage_key = f"{company.id}/{file_id}"
-        mime_type = uploaded_file.content_type
-        bucket = storage_client.storage.from_("documents")
-
-        bucket.upload(
-            storage_key,
-            uploaded_file.read(),
-            {"content-type": mime_type},
-        )
-        try:
-            return serializer.save(
-                id=file_id,
-                name=serializer.validated_data.get("name", uploaded_file.name),
-                original_name=uploaded_file.name,
-                mime_type=mime_type,
-                size=uploaded_file.size,
-                storage_key=storage_key,
-            )
-        except DatabaseError:
-            try:
-                bucket.remove([storage_key])
-            except Exception:
-                logger.exception("Supabase Storage cleanup failed for document %s.", file_id)
-            raise
 
     def get_object(self):
         """
@@ -262,25 +219,6 @@ class FileViewSet(
             raise ValidationError("El archivo debe tener extensión .xlsx.")
         return storage_client.storage.from_("documents").download(file.storage_key)
 
-    @staticmethod
-    def _check_company_access(company_id, user, write=False):
-        """
-        Exige membresía y, para escrituras, una Company activa.
-
-        @version 1.1
-        @author Agustin
-        """
-        membership = (
-            CompanyMember.objects.filter(user=user, company_id=company_id)
-            .select_related("company")
-            .first()
-        )
-        if membership is None:
-            FileViewSet._not_found()
-        if write and not membership.company.is_active:
-            raise PermissionDenied()
-        return membership.company
-
     @action(detail=False, methods=["get"])
     def usage(self, request):
         """
@@ -291,7 +229,7 @@ class FileViewSet(
         """
         query = CompanyQuery(data=request.query_params)
         query.is_valid(raise_exception=True)
-        self._check_company_access(query.validated_data["company_id"], request.user)
+        check_company_access(query.validated_data["company_id"], request.user)
 
         used = (
             File.objects.filter(company_id=query.validated_data["company_id"])
@@ -318,7 +256,7 @@ class FileViewSet(
         query_serializer.is_valid(raise_exception=True)
         filters = query_serializer.validated_data
 
-        self._check_company_access(filters["company_id"], self.request.user)
+        check_company_access(filters["company_id"], self.request.user)
 
         files = File.objects.filter(company_id=filters["company_id"])
         category_id = filters.get("category_id")

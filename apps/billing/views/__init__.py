@@ -28,6 +28,11 @@ from apps.billing.views.point_of_sale import (
     PointOfSaleListCreateView,
 )
 
+from apps.billing.views.representation import (
+    CreditNoteRepresentationView,
+    InvoiceRepresentationView,
+)
+
 __all__ = (
     "CreditNoteDetailView",
     "CreditNoteInvoiceDetailView",
@@ -36,12 +41,14 @@ __all__ = (
     "CreditNoteItemDetailView",
     "CreditNoteItemListCreateView",
     "CreditNoteListCreateView",
+    "CreditNoteRepresentationView",
     "FiscalProfileView",
     "InvoiceDetailView",
     "InvoiceIssueView",
     "InvoiceItemDetailView",
     "InvoiceItemListCreateView",
     "InvoiceListCreateView",
+    "InvoiceRepresentationView",
     "PointOfSaleActivateView",
     "PointOfSaleDeactivateView",
     "PointOfSaleDetailView",

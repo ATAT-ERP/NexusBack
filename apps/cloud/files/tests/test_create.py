@@ -57,7 +57,7 @@ class FileCreateTests(APITestCase):
 
         self.assert_validation_error(response, "company_id")
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_creates_a_document_and_uploads_its_file(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "informe.pdf",
@@ -93,7 +93,7 @@ class FileCreateTests(APITestCase):
             {"content-type": "application/pdf"},
         )
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_uses_the_provided_name(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "informe.pdf",
@@ -115,7 +115,7 @@ class FileCreateTests(APITestCase):
         self.assertEqual(response.data["name"], "Informe de agosto")
         storage_client.storage.from_().upload.assert_called_once()
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_member_can_upload_to_an_authorized_company(self, storage_client):
         member = User.objects.create(id=uuid.uuid4(), email="member@example.com")
         CompanyMember.objects.create(
@@ -137,7 +137,7 @@ class FileCreateTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         storage_client.storage.from_().upload.assert_called_once()
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_rejects_upload_to_a_company_without_membership(self, storage_client):
         company = Company.objects.create(name="Compañía ajena")
         uploaded_file = SimpleUploadedFile(
@@ -170,7 +170,7 @@ class FileCreateTests(APITestCase):
         self.assertFalse(File.objects.exists())
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_rejects_upload_to_an_inactive_company(self, storage_client):
         self.company.is_active = False
         self.company.save(update_fields=["is_active"])
@@ -210,7 +210,7 @@ class FileCreateTests(APITestCase):
         document.refresh_from_db()
         self.assertEqual(document.name, "Informe")
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_requires_a_file(self, storage_client):
         response = self.client.post(
             self.url,
@@ -224,7 +224,7 @@ class FileCreateTests(APITestCase):
         self.assertFalse(File.objects.exists())
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_rejects_an_empty_file(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "vacio.pdf",
@@ -241,7 +241,7 @@ class FileCreateTests(APITestCase):
         self.assert_validation_error(response, "file")
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_accepts_a_file_of_exactly_six_megabytes(self, storage_client):
         self.assertEqual(settings.DOCUMENT_MAX_SIZE_BYTES, 6 * 1024 * 1024)
         uploaded_file = SimpleUploadedFile(
@@ -259,7 +259,7 @@ class FileCreateTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         storage_client.storage.from_().upload.assert_called_once()
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_rejects_a_file_larger_than_six_megabytes(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "grande.pdf",
@@ -276,7 +276,7 @@ class FileCreateTests(APITestCase):
         self.assert_validation_error(response, "file")
         storage_client.storage.from_.assert_not_called()
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_accepts_the_allowed_mime_types(self, storage_client):
         mime_types = (
             "application/pdf",
@@ -304,7 +304,7 @@ class FileCreateTests(APITestCase):
 
         self.assertEqual(storage_client.storage.from_().upload.call_count, len(mime_types))
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_rejects_a_disallowed_mime_type(self, storage_client):
         uploaded_file = SimpleUploadedFile(
             "archivo.txt",
@@ -322,7 +322,7 @@ class FileCreateTests(APITestCase):
         storage_client.storage.from_.assert_not_called()
 
     @patch("apps.cloud.files.api.serializers.FileCreateSerializer.create", side_effect=DatabaseError)
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_removes_the_uploaded_file_when_metadata_save_fails(
         self,
         storage_client,
@@ -344,7 +344,7 @@ class FileCreateTests(APITestCase):
         storage_key = storage_client.storage.from_().upload.call_args.args[0]
         storage_client.storage.from_().remove.assert_called_once_with([storage_key])
 
-    @patch("apps.cloud.files.api.views.storage_client")
+    @patch("apps.cloud.files.services.storage_client")
     def test_does_not_save_metadata_when_upload_fails(self, storage_client):
         storage_client.storage.from_().upload.side_effect = StorageApiError(
             "Storage unavailable",
