@@ -14,19 +14,55 @@ Está organizado como un monolito modular por dominios y utiliza PostgreSQL en S
 
 ## Configuración
 
-Cree el archivo `.env` a partir del ejemplo y complete las variables requeridas.
+Necesita Docker Desktop con Docker Compose y las credenciales del entorno de
+desarrollo de PostgreSQL/Supabase. Desde la raíz del repositorio, cree `.env`:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-## Docker
+Complete en `.env` la clave de Django, los datos de PostgreSQL y las claves del proyecto
+Supabase. `SUPABASE_KEY` es la clave publicable/anon; `SUPABASE_SECRET_KEY` es
+exclusiva del servidor. No agregue credenciales al repositorio. `.env` está excluido
+de Git y Docker Compose entrega sus variables al contenedor.
+
+Para iniciar el servidor:
 
 ```powershell
 docker compose up --build
 ```
 
-La API queda disponible en `http://localhost:8000`.
+La API queda disponible en `http://localhost:8000/api/` y la verificación de estado en
+`http://localhost:8000/api/health/`. Para detener y retirar los contenedores:
+
+```powershell
+docker compose down
+```
+
+En desarrollo, `DJANGO_ALLOWED_HOSTS` configura los hosts HTTP y
+`CORS_ALLOWED_ORIGINS` configura los sitios web autorizados; cada variable contiene
+una lista separada por comas. El `.env.example` incluye valores locales. PortalWeb
+usa `http://localhost:5173`; el emulador Android estándar accede por
+`http://10.0.2.2:8000/api/`.
+
+Para usar un teléfono físico, configure Django para escuchar dentro del contenedor
+(Compose ya publica el puerto `8000`) y agregue la IP de la red local de la computadora a
+`DJANGO_ALLOWED_HOSTS`. En el teléfono, use `http://<IP-RED-LOCAL-DE-LA-COMPUTADORA>:8000/api/`.
+El puerto debe estar permitido en el firewall. Si una página web del teléfono llama
+a la API, agregue además el origen de esa página a `CORS_ALLOWED_ORIGINS`. Una aplicación
+móvil nativa no usa CORS.
+
+Si cambia una lista en `.env`, vuelva a ejecutar `docker compose up` para recrear el
+servicio con esas variables. Los valores explícitos en `.env` reemplazan los valores
+predeterminados y no se combinan con ellos.
+
+### Producción (Render y Supabase)
+
+En Render, configure las variables del servidor en el entorno del servicio: use
+`DJANGO_DEBUG=False`, una `DJANGO_SECRET_KEY` privada, los hosts y orígenes HTTPS
+reales, y los datos de PostgreSQL/Supabase. `DJANGO_TRUST_PROXY_HEADERS=True` sólo
+se activa detrás del proxy HTTPS de Render. No implemente ni ejecute el despliegue
+con la configuración local de Docker Compose.
 
 ## Pruebas
 
