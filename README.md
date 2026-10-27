@@ -58,11 +58,56 @@ predeterminados y no se combinan con ellos.
 
 ### Producción (Render y Supabase)
 
-En Render, configure las variables del servidor en el entorno del servicio: use
-`DJANGO_DEBUG=False`, una `DJANGO_SECRET_KEY` privada, los hosts y orígenes HTTPS
-reales, y los datos de PostgreSQL/Supabase. `DJANGO_TRUST_PROXY_HEADERS=True` sólo
-se activa detrás del proxy HTTPS de Render. No implemente ni ejecute el despliegue
-con la configuración local de Docker Compose.
+Cree una instancia de Blueprint en Render usando `render.yaml` y seleccione la
+rama a desplegar. Define un Web Service Python 3.11 con Gunicorn y health check
+en `/api/health/`. El build sólo instala `requirements.txt`; no aplica migraciones.
+El plan gratuito suspende el servicio por inactividad y no incluye Shell.
+Docker Compose conserva su uso para desarrollo y pruebas.
+
+Configure las variables solicitadas por el blueprint según `.env.example`:
+
+- `DJANGO_DEBUG=False` y `DJANGO_TRUST_PROXY_HEADERS=True` (incluidas).
+- `DJANGO_SECRET_KEY` privada, generada por el blueprint.
+- `DJANGO_ALLOWED_HOSTS`: hosts públicos explícitos, sin esquema ni comodines.
+- `CORS_ALLOWED_ORIGINS`: orígenes HTTPS de PortalWeb, separados por comas.
+  `CSRF_TRUSTED_ORIGINS` sólo si hay solicitudes que requieran CSRF.
+- `POSTGRES_DB`, `POSTGRES_USER`, `DB_PASSWORD`, `POSTGRES_HOST` y `POSTGRES_PORT`:
+  datos de la base existente de Supabase. Para Session pooler, copie el host y
+  usuario correspondientes y use el puerto `5432`. Se mantiene `sslmode=require`.
+- `SUPABASE_URL`, `SUPABASE_KEY` y `SUPABASE_SECRET_KEY`: integración existente de
+  Auth y Storage; la clave secreta permanece exclusivamente en el servidor.
+
+Render termina HTTPS y Django mantiene redirección HTTPS y cookies seguras.
+HSTS comienza con una hora en producción; puede ajustar `DJANGO_SECURE_HSTS_SECONDS`
+tras verificar HTTPS. El valor `0` deja de emitir el encabezado, pero no borra las
+políticas ya almacenadas en los navegadores. No se habilitan subdominios ni preload.
+No hay estáticos propios, Admin ni Browsable API; no se necesita `collectstatic`.
+Los documentos permanecen en Supabase Storage.
+
+Antes de publicar una versión que cambie el esquema, desde un entorno autorizado
+con las dependencias y variables de producción de esa misma versión:
+
+```sh
+python manage.py showmigrations --plan
+python manage.py migrate --plan
+```
+
+Revise las migraciones pendientes, su SQL cuando corresponda y la compatibilidad
+con la versión en servicio. Después de disponer de un respaldo de Supabase,
+ejecútelas manualmente y coordine la publicación de la versión:
+
+```sh
+python manage.py migrate
+```
+
+No configure migraciones en el build ni en el arranque. Antes de desplegar, ejecute
+`python manage.py check` y `python manage.py check --deploy`. Este último advertirá
+sobre `SECURE_HSTS_INCLUDE_SUBDOMAINS` y `SECURE_HSTS_PRELOAD`, deshabilitados
+deliberadamente; revise cualquier otra advertencia.
+
+Verifique la URL pública con `Invoke-RestMethod https://<servicio>.onrender.com/api/health/`:
+debe devolver HTTP 200 con `{"status": "ok"}`. El health check verifica el proceso;
+compruebe también los flujos de la API que usan PostgreSQL y Storage.
 
 ## Pruebas
 

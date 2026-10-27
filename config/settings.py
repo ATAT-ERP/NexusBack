@@ -76,6 +76,10 @@ if not DEBUG:
 SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+# Empezar con una hora en producción y ampliar tras verificar HTTPS.
+SECURE_HSTS_SECONDS = int(
+    os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "3600")
+)
 # Activar sólo tras un proxy de confianza que reemplace este encabezado.
 SECURE_PROXY_SSL_HEADER = (
     ("HTTP_X_FORWARDED_PROTO", "https")
