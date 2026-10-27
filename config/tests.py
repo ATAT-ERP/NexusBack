@@ -53,7 +53,9 @@ class SettingsEnvironmentTests(SimpleTestCase):
                 "print(json.dumps({name: getattr(settings, name) for name in "
                 "['DEBUG', 'ALLOWED_HOSTS', 'CORS_ALLOWED_ORIGINS', "
                 "'CSRF_TRUSTED_ORIGINS', 'SECURE_SSL_REDIRECT', 'SESSION_COOKIE_SECURE', "
-                "'CSRF_COOKIE_SECURE', 'SECURE_HSTS_SECONDS', 'SECURE_PROXY_SSL_HEADER', "
+                "'CSRF_COOKIE_SECURE', 'SECURE_HSTS_SECONDS', "
+                "'SECURE_HSTS_INCLUDE_SUBDOMAINS', 'SECURE_HSTS_PRELOAD', "
+                "'SECURE_PROXY_SSL_HEADER', 'STORAGES', 'MIDDLEWARE', "
                 "'DATABASES']}))",
             ],
             cwd=Path(__file__).resolve().parent.parent,
@@ -80,7 +82,17 @@ class SettingsEnvironmentTests(SimpleTestCase):
         self.assertFalse(configuration["CSRF_COOKIE_SECURE"])
         self.assertFalse(configuration["SESSION_COOKIE_SECURE"])
         self.assertEqual(configuration["SECURE_HSTS_SECONDS"], 0)
+        self.assertFalse(configuration["SECURE_HSTS_INCLUDE_SUBDOMAINS"])
+        self.assertFalse(configuration["SECURE_HSTS_PRELOAD"])
         self.assertIsNone(configuration["SECURE_PROXY_SSL_HEADER"])
+        self.assertEqual(
+            configuration["STORAGES"]["staticfiles"]["BACKEND"],
+            "django.contrib.staticfiles.storage.StaticFilesStorage",
+        )
+        self.assertNotIn(
+            "whitenoise.middleware.WhiteNoiseMiddleware",
+            configuration["MIDDLEWARE"],
+        )
 
     def test_explicit_lists_replace_defaults(self):
         """Respeta los hosts y orígenes configurados explícitamente.
@@ -149,7 +161,17 @@ class SettingsEnvironmentTests(SimpleTestCase):
                 self.assertEqual(configuration["CSRF_TRUSTED_ORIGINS"], [])
                 for name in ("SECURE_SSL_REDIRECT", "SESSION_COOKIE_SECURE", "CSRF_COOKIE_SECURE"):
                     self.assertTrue(configuration[name])
-                self.assertEqual(configuration["SECURE_HSTS_SECONDS"], 0)
+                self.assertEqual(configuration["SECURE_HSTS_SECONDS"], 31536000)
+                self.assertTrue(configuration["SECURE_HSTS_INCLUDE_SUBDOMAINS"])
+                self.assertTrue(configuration["SECURE_HSTS_PRELOAD"])
+                self.assertEqual(
+                    configuration["STORAGES"]["staticfiles"]["BACKEND"],
+                    "whitenoise.storage.CompressedManifestStaticFilesStorage",
+                )
+                self.assertIn(
+                    "whitenoise.middleware.WhiteNoiseMiddleware",
+                    configuration["MIDDLEWARE"],
+                )
                 self.assertEqual(configuration["DATABASES"]["default"]["OPTIONS"]["sslmode"], "require")
                 self.assertEqual(
                     configuration["SECURE_PROXY_SSL_HEADER"],

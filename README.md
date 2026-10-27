@@ -58,11 +58,106 @@ predeterminados y no se combinan con ellos.
 
 ### Producción (Render y Supabase)
 
-En Render, configure las variables del servidor en el entorno del servicio: use
-`DJANGO_DEBUG=False`, una `DJANGO_SECRET_KEY` privada, los hosts y orígenes HTTPS
-reales, y los datos de PostgreSQL/Supabase. `DJANGO_TRUST_PROXY_HEADERS=True` sólo
-se activa detrás del proxy HTTPS de Render. No implemente ni ejecute el despliegue
-con la configuración local de Docker Compose.
+El repositorio está preparado para ejecutarse como **Web Service** de Render con
+Gunicorn y la base PostgreSQL de Supabase. Render usa su runtime Python; el
+`Dockerfile` y `compose.yaml` quedan para desarrollo y pruebas.
+
+#### Crear el servicio
+
+1. En Render, cree un **Web Service** y vincule el repositorio de GitHub.
+2. Seleccione la rama de producción y el runtime **Python**. El archivo
+   `.python-version` fija Python 3.11.
+3. Defina los comandos:
+   - **Build Command:** `pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate --noinput`
+   - **Start Command:** `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`
+   - **Health Check Path:** `/api/health/`
+4. También puede aplicar el blueprint incluido en `render.yaml` desde
+   **Blueprints > New Blueprint Instance**. El blueprint usa el plan gratuito y
+   solicita las variables marcadas como secretas.
+
+En el plan gratuito Render suspende el servicio por inactividad: el primer
+request después de una pausa puede tardar en responder. El plan gratuito no
+ofrece Shell ni pre-deploy; por eso el build aplica las migraciones antes de
+publicar la nueva versión.
+
+#### Variables de entorno
+
+Configure en Render, sin agregar valores reales al repositorio:
+
+| Variable | Valor |
+| --- | --- |
+| `DJANGO_DEBUG` | `False` |
+| `DJANGO_SECRET_KEY` | Clave aleatoria segura (mínimo 50 caracteres; no usar `django-insecure-`). En el blueprint se genera automáticamente. |
+| `DJANGO_ALLOWED_HOSTS` | Hosts públicos separados por comas, por ejemplo `nexusback.onrender.com,api.example.com`. Sin comodines. |
+| `CORS_ALLOWED_ORIGINS` | Orígenes HTTPS de PortalWeb, por ejemplo `https://portal.example.com`. Sin comodines. |
+| `CSRF_TRUSTED_ORIGINS` | Orígenes HTTPS que necesiten CSRF, normalmente el mismo origen de PortalWeb. Puede quedar vacío. |
+| `DJANGO_TRUST_PROXY_HEADERS` | `True` (Render termina HTTPS y envía `X-Forwarded-Proto`). |
+| `POSTGRES_DB` | Nombre de la base de Supabase. |
+| `POSTGRES_USER` | Usuario de la base de Supabase. |
+| `DB_PASSWORD` | Contraseña de la base de Supabase. |
+| `POSTGRES_HOST` | Host de conexión de Supabase (se recomienda la conexión **Session pooler**). |
+| `POSTGRES_PORT` | Puerto de conexión de Supabase (`5432` para la conexión directa o Session pooler). |
+| `SUPABASE_URL` | URL del proyecto Supabase. |
+| `SUPABASE_KEY` | Clave publicable/anon de Supabase. |
+| `SUPABASE_SECRET_KEY` | Clave secreta de servidor para Supabase Storage. No compartir con PortalWeb ni Orbit. |
+
+Opcionalmente ajuste `DOCUMENT_MAX_SIZE_MB`, `DOCUMENT_COMPANY_LIMIT_MB` y
+`DOCUMENT_STORAGE_SAFE_LIMIT_MB`. La conexión usa `sslmode=require`, requerido
+por Supabase; no se configura una segunda base en Render.
+
+#### Migraciones y datos
+
+El comando de build ejecuta `python manage.py migrate --noinput`, por lo que
+aplica únicamente migraciones pendientes antes de iniciar la nueva versión y
+cancela el deploy si alguna falla. Antes de desplegar un cambio de esquema:
+
+1. Revise las migraciones incluidas en el repositorio.
+2. Confirme que no haya operaciones destructivas ni datos de prueba.
+3. Realice un respaldo de Supabase.
+4. Despliegue y verifique `/api/health/`.
+
+Si el servicio pasa a un plan pago, puede mover `python manage.py migrate
+--noinput` del build al **Pre-Deploy Command** de Render para separar la
+migración de la construcción. No ejecute migraciones manuales contra producción
+sin revisar antes el SQL y contar con respaldo.
+
+#### Archivos estáticos, HTTPS y errores
+
+- `collectstatic` genera `staticfiles/` durante el build y WhiteNoise los sirve
+  desde la instancia. Los archivos subidos por usuarios no se guardan en Render:
+  la aplicación mantiene Supabase Storage y la clave `SUPABASE_SECRET_KEY`.
+- Render termina TLS. Con `DJANGO_TRUST_PROXY_HEADERS=True`, Django confía en
+  `X-Forwarded-Proto`, redirige a HTTPS y usa cookies seguras. En producción se
+  envía HSTS por un año; `DJANGO_SECURE_HSTS_SECONDS=0` lo desactiva si fuera
+  necesario.
+- Con `DJANGO_DEBUG=False`, Django no muestra trazas ni detalles internos en las
+  respuestas de error.
+
+#### Verificar el servicio
+
+Con la URL pública de Render:
+
+```powershell
+Invoke-RestMethod https://<servicio>.onrender.com/api/health/
+```
+
+Debe responder `200` con:
+
+```json
+{"status": "ok"}
+```
+
+Las rutas de la API siguen bajo `/api/`. Para comprobar la configuración de
+producción, cargue las variables en el entorno y ejecute:
+
+```powershell
+python manage.py check
+python manage.py check --deploy
+```
+
+Ambos comandos deben finalizar sin errores ni advertencias de seguridad
+pendientes. No ejecute `runserver` en producción; Gunicorn es el servidor del
+servicio.
 
 ## Pruebas
 
