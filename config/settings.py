@@ -65,12 +65,17 @@ if not DEBUG:
             "DJANGO_ALLOWED_HOSTS must contain explicit hosts without wildcards in production."
         )
     if any(
-        not origin.startswith("https://") or "*" in origin
+        (
+            not origin.startswith("https://")
+            and origin not in {"http://localhost:5173", "http://127.0.0.1:5173"}
+        )
+        or "*" in origin
         for origin in CORS_ALLOWED_ORIGINS + CSRF_TRUSTED_ORIGINS
     ):
         raise ImproperlyConfigured(
             "CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS must use HTTPS "
-            "without wildcards in production."
+            "without wildcards in production, except for http://localhost:5173 "
+            "and http://127.0.0.1:5173."
         )
 
 SECURE_SSL_REDIRECT = not DEBUG

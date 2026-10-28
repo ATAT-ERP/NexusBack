@@ -131,6 +131,63 @@ class SettingsEnvironmentTests(SimpleTestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(message, result.stderr)
 
+    def test_production_allows_only_explicit_local_origins_alongside_https(self):
+        """Permite Vite local por entorno sin exigir confianza CSRF para Bearer.
+
+        @version 1.0
+        """
+        origins = [
+            "https://portal.example.com",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+        for csrf_origins in ([], origins):
+            with self.subTest(csrf_origins=csrf_origins):
+                result = self.load_settings(
+                    DJANGO_DEBUG="False",
+                    DJANGO_SECRET_KEY="configuration-tests-only-0123456789-abcdefghij-ABCDEFGHIJ",
+                    DJANGO_ALLOWED_HOSTS="api.example.com",
+                    CORS_ALLOWED_ORIGINS=", ".join(origins),
+                    CSRF_TRUSTED_ORIGINS=", ".join(csrf_origins),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                configuration = json.loads(result.stdout)
+                self.assertEqual(configuration["CORS_ALLOWED_ORIGINS"], origins)
+                self.assertEqual(configuration["CSRF_TRUSTED_ORIGINS"], csrf_origins)
+                for name in ("SECURE_SSL_REDIRECT", "SESSION_COOKIE_SECURE", "CSRF_COOKIE_SECURE"):
+                    self.assertTrue(configuration[name])
+
+    def test_production_rejects_origins_outside_exact_local_exceptions(self):
+        """Rechaza variantes HTTP y comodines aunque acompañen un origen permitido.
+
+        @version 1.0
+        """
+        for name in ("CORS_ALLOWED_ORIGINS", "CSRF_TRUSTED_ORIGINS"):
+            for origin in (
+                "http://portal.example.com",
+                "http://localhost",
+                "http://localhost:3000",
+                "http://127.0.0.1:5174",
+                "http://192.168.1.10:5173",
+                "http://[::1]:5173",
+                "http://localhost.example.com:5173",
+                "http://127.0.0.1.example.com:5173",
+                "http://localhost:5173/",
+                "http://localhost:5173@evil.example.com",
+                "http://localhost:*",
+                "https://*.example.com",
+                "*",
+            ):
+                with self.subTest(setting=name, origin=origin):
+                    result = self.load_settings(
+                        DJANGO_DEBUG="False",
+                        DJANGO_SECRET_KEY="configuration-tests-only-0123456789-abcdefghij-ABCDEFGHIJ",
+                        DJANGO_ALLOWED_HOSTS="api.example.com",
+                        **{name: f"http://localhost:5173,{origin}"},
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("must use HTTPS without wildcards", result.stderr)
+
     def test_production_enables_https_and_trusts_proxy_only_when_configured(self):
         """Activa HTTPS y HSTS inicial sin extender la política a subdominios.
 
