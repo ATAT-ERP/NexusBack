@@ -184,3 +184,49 @@ class DeadlineAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.deadline.refresh_from_db()
         self.assertEqual(self.deadline.company, self.second)
+
+    def test_error_response_bodies(self):
+        """Comprueba los contratos JSON de errores de autenticación y acceso. @version 1.0"""
+        from unittest.mock import patch
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json(), {"detail": "Authentication credentials were not provided."})
+
+        with patch("apps.users.authentication.supabase.auth.get_user", side_effect=ValueError):
+            response = self.client.get(self.url, HTTP_AUTHORIZATION="Bearer invalid-token")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json(), {
+            "code": "NEX-USR-010", "message": "No fue posible autenticar la solicitud."
+        })
+
+        self.client.force_authenticate(self.user)
+        response = self.client.post(self.url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {
+            "company": ["This field is required."],
+            "name": ["This field is required."],
+            "due_date": ["This field is required."],
+        })
+        response = self.client.get(self.url, {
+            "due_date_from": "2026-12-02", "due_date_to": "2026-12-01"
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {
+            "due_date_to": ["La fecha final debe ser igual o posterior a la inicial."]
+        })
+
+        self.company.is_active = False
+        self.company.save()
+        response = self.client.patch(self.detail, {"name": "Editada"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), {"detail": "You do not have permission to perform this action."})
+
+        for deadline_id in (self.other_deadline.id, uuid.uuid4()):
+            response = self.client.get(f"{self.url}{deadline_id}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertEqual(response.json(), {"detail": "No Deadline matches the given query."})
+        CompanyMember.objects.filter(user=self.user, company=self.company).delete()
+        response = self.client.get(self.detail)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), {"detail": "No Deadline matches the given query."})

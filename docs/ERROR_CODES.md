@@ -24,7 +24,7 @@ secretos, Supabase service keys ni credenciales completas.
 
 | Código | Caso interno | HTTP | Mensaje público |
 | --- | --- | --- | --- |
-| `NEX-AUTH-001` | Autenticación ausente o inválida. No distingue públicamente entre token inexistente, inválido o vencido. | `401 Unauthorized` | `No fue posible autenticar la solicitud.` |
+| `NEX-AUTH-001` | Autenticación ausente o inválida; entrada conservada pendiente de confirmar su uso. | `401 Unauthorized` | `No fue posible autenticar la solicitud.` |
 | `NEX-USR-001` | La identidad autenticada no puede vincularse a un perfil local existente. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-USR-002` | El perfil local existe pero `is_active = False`. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-USR-003` | Los datos de entrada enviados al módulo `users` no superan la validación. | `400 Bad Request` | `Los datos enviados no son válidos.` |
@@ -34,7 +34,7 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-USR-007` | Supabase Auth alcanzó temporalmente un límite de solicitudes de autenticación. | `429 Too Many Requests` | `Se alcanzó temporalmente el límite de solicitudes. Intente nuevamente más tarde.` |
 | `NEX-USR-008` | Las credenciales de acceso no son válidas. | `401 Unauthorized` | `Email o contraseña incorrectos.` |
 | `NEX-USR-009` | Supabase Auth no pudo iniciar sesión. | `502 Bad Gateway` | `No fue posible iniciar sesión.` |
-| `NEX-USR-010` | El header Bearer está ausente, mal formado, vencido o no puede validarse ante Supabase Auth. | `401 Unauthorized` | `No fue posible autenticar la solicitud.` |
+| `NEX-USR-010` | El header de autorización está mal formado o el Bearer está vencido o no puede validarse ante Supabase Auth. | `401 Unauthorized` | `No fue posible autenticar la solicitud.` |
 | `NEX-USR-011` | El usuario autenticado no tiene permisos para la operación solicitada, incluidos los intentos de auto-desactivación o auto-despromoción. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-USR-012` | Error interno al validar el perfil del usuario autenticado. | `500 Internal Server Error` | `Error interno al validar el perfil del usuario autenticado.` |
 | `NEX-USR-013` | Supabase Auth no pudo cerrar la sesión solicitada. | `502 Bad Gateway` | `No fue posible cerrar la sesión.` |
@@ -50,10 +50,17 @@ secretos, Supabase service keys ni credenciales completas.
 | `NEX-PERM-001` | El usuario autenticado no posee autorización suficiente para la operación. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-PERM-002` | La operación requiere `is_system_admin = True`, pero el usuario no es administrador global. | `403 Forbidden` | `No fue posible autorizar la operación.` |
 | `NEX-COM-001` | Los datos de entrada enviados al módulo `company` no superan la validación, incluido un CUIT estructuralmente inválido o duplicado. | `400 Bad Request` | `Los datos enviados no son válidos.` |
+| `NEX-COM-004` | La compañía solicitada no existe o no está disponible para el usuario. | `404 Not Found` | `Compañía no encontrada.` |
 
 El registro y el inicio de sesión mediante Supabase Auth están implementados,
 y los errores conocidos de Auth se traducen a códigos HTTP de NexusBack. Los
 endpoints protegidos de `users` validan JWT Bearer contra Supabase Auth.
+
+En los endpoints con `SupabaseBearerAuthentication` e `IsAuthenticated`, la
+ausencia del encabezado devuelve `401` con `detail` nativo de DRF, sin código
+`NEX-USR-010`; un encabezado mal formado o un Bearer inválido sí devuelve ese
+código. `NEX-AUTH-001` se conserva en el catálogo pendiente de confirmar su uso;
+no describe esa respuesta actual de Bearer ausente.
 
 ## Accounting
 
