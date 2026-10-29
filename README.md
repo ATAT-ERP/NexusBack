@@ -128,6 +128,7 @@ Puede agregar `.CompanyCreateTests` o `.CompanyCreateTests.test_create_individua
 - [Módulo users](docs/modules/USERS.md)
 - [Módulo cloud](docs/modules/CLOUD.md)
 - [Módulo accounting](docs/modules/ACCOUNTING.md)
+- [Módulo deadlines](docs/DEADLINES.md)
 - [Códigos de error](docs/ERROR_CODES.md)
 
 Las convenciones del repositorio y las instrucciones para agentes de desarrollo se encuentran en [`AGENTS.md`](AGENTS.md).

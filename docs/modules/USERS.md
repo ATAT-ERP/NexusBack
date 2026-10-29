@@ -167,8 +167,9 @@ Los códigos aplicables al módulo incluyen `NEX-USR-003` para datos inválidos,
 `NEX-USR-004` para un usuario inexistente, `NEX-USR-005` para una cuenta no
 creada por Supabase Auth, `NEX-USR-006` para un perfil local no creado,
 `NEX-USR-007` para rate limit, `NEX-USR-008` para credenciales inválidas y
-`NEX-USR-009` para un fallo de login. `NEX-USR-010` representa un Bearer
-ausente, mal formado o inválido, `NEX-USR-011` una falta de permisos y
+`NEX-USR-009` para un fallo de login. `NEX-USR-010` representa un encabezado
+mal formado o un Bearer inválido; sin encabezado, DRF responde `401` con `detail`.
+`NEX-USR-011` representa una falta de permisos y
 `NEX-USR-012` un fallo interno al validar el perfil local autenticado.
 `NEX-USR-013` representa un fallo de Supabase al cerrar una sesión y
 `NEX-USR-014` un fallo de Supabase al actualizar la contraseña. La fuente de

@@ -268,8 +268,9 @@ Un usuario `member` puede consultar y buscar Companies a las que pertenece, pero
 recibe `403 Forbidden` al intentar editarlas o darlas de baja. Las operaciones
 de escritura sobre una Company inactiva también responden `403`. Las respuestas
 de validación conservan `NEX-COM-001`; un UUID inexistente o ajeno responde
-`404` con `NEX-COM-004`. La autenticación ausente o inválida responde `401` con
-el error estándar de Bearer.
+`404` con `NEX-COM-004`. Sin encabezado de autorización se responde `401` con
+`detail` de DRF; un encabezado mal formado o Bearer inválido devuelve
+`NEX-USR-010`.
 
 ### Administración de miembros
 

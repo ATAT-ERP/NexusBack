@@ -110,6 +110,7 @@ INSTALLED_APPS = [
     "apps.company.apps.CompanyConfig",
     "apps.billing.apps.BillingConfig",
     "apps.accounting.apps.AccountingConfig",
+    "apps.deadlines.apps.DeadlinesConfig",
 ]
 
 REST_FRAMEWORK = {
