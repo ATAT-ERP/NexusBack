@@ -65,17 +65,26 @@ if not DEBUG:
             "DJANGO_ALLOWED_HOSTS must contain explicit hosts without wildcards in production."
         )
     if any(
-        not origin.startswith("https://") or "*" in origin
+        (
+            not origin.startswith("https://")
+            and origin not in {"http://localhost:5173", "http://127.0.0.1:5173"}
+        )
+        or "*" in origin
         for origin in CORS_ALLOWED_ORIGINS + CSRF_TRUSTED_ORIGINS
     ):
         raise ImproperlyConfigured(
             "CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS must use HTTPS "
-            "without wildcards in production."
+            "without wildcards in production, except for http://localhost:5173 "
+            "and http://127.0.0.1:5173."
         )
 
 SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+# Empezar con una hora en producción y ampliar tras verificar HTTPS.
+SECURE_HSTS_SECONDS = int(
+    os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "3600")
+)
 # Activar sólo tras un proxy de confianza que reemplace este encabezado.
 SECURE_PROXY_SSL_HEADER = (
     ("HTTP_X_FORWARDED_PROTO", "https")
