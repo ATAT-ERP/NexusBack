@@ -111,6 +111,46 @@ class AccountTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data, {"code": "NEX-ACC-001"})
 
+    def test_created_account_remains_listed_and_isolated_by_company(self):
+        """Conserva la cuenta creada por POST en consultas sucesivas y la aísla.
+
+        @version 1.0
+        @author Agustin
+        """
+        response = self.client.post(
+            self.list_url,
+            {"code": "2.2", "name": "TEST 2", "account_type": AccountType.ASSET},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        account_id = response.data["id"]
+        self.assertEqual(str(response.data["company"]), str(self.company.pk))
+        self.assertTrue(response.data["is_active"])
+        created_account = response.data
+
+        for query in ({}, {}, {"account_type": AccountType.ASSET}):
+            with self.subTest(query=query):
+                response = self.client.get(self.list_url, query)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.data, [created_account])
+
+        other_url = f"/api/accounting/companies/{self.other_company.pk}/accounts/"
+        self.assertEqual(
+            self.client.get(other_url).status_code, status.HTTP_403_FORBIDDEN
+        )
+        CompanyMember.objects.create(
+            user=self.user,
+            company=self.other_company,
+            role=CompanyRole.objects.get(code="member"),
+        )
+        response = self.client.get(other_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+        self.assertEqual(
+            self.client.get(f"{other_url}{account_id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
     def test_database_duplicate_returns_only_the_functional_code(self):
         """Traduce una colisión posterior a validar sin dejar rota la transacción.
 

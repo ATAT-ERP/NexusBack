@@ -109,6 +109,7 @@ apps/accounting/
 │   ├── test_journal_entries.py
 │   ├── test_journal_entry_publication.py
 │   ├── test_journal_entry_reversal.py
+│   ├── test_manual_journal_entries.py
 │   └── test_reports.py
 ├── apps.py
 ├── urls.py
@@ -128,6 +129,9 @@ POST   /api/accounting/companies/<uuid>/journal-entries/<id>/publish/
 POST   /api/accounting/companies/<uuid>/journal-entries/<id>/reverse/
 
 GET    /api/accounting/companies/<uuid>/journal-entries/
+POST   /api/accounting/companies/<uuid>/journal-entries/
+GET    /api/accounting/companies/<uuid>/journal-entries/drafts/
+GET    /api/accounting/companies/<uuid>/journal-entries/drafts/<id>/
 GET    /api/accounting/companies/<uuid>/journal-entries/<id>/
 GET    /api/accounting/companies/<uuid>/reports/daily-journal/
 GET    /api/accounting/companies/<uuid>/reports/general-ledger/<account_id>/
@@ -138,8 +142,8 @@ Todos exigen `Authorization: Bearer <access_token>` y membership del usuario en
 la Company de la URL; sin membership la respuesta es `403 Forbidden`. No existe
 paginación: los listados devuelven colecciones planas.
 
-Todavía no hay endpoints para crear ni editar asientos y movimientos: hoy sólo
-se crean desde el ORM y los services del módulo.
+La API permite crear asientos manuales con movimientos y recuperar borradores.
+No hay endpoints de edición ni eliminación de asientos o movimientos.
 
 ### Plan de cuentas
 
@@ -157,6 +161,62 @@ se crean desde el ORM y los services del módulo.
   Cambiar `code`, `name` o `account_type` de una cuenta con movimientos en asientos
   `POSTED` o `REVERSED` devuelve `400`, `NEX-ACC-002`. Las cuentas usadas sólo en
   borradores siguen siendo editables y `is_active` permanece modificable.
+
+### Alta manual y recuperación de borradores
+
+`POST .../journal-entries/` crea un asiento con origen `MANUAL`, estado `DRAFT`,
+Company tomada de la URL, usuario autenticado como `created_by` y número generado
+por el modelo. Responde `201` con el mismo contrato del detalle (cabecera y
+`lines`, incluidos `id`, `number` y `status`). Ejemplo de solicitud:
+
+```json
+{
+  "accounting_date": "2026-11-02",
+  "description": "Aporte inicial de capital",
+  "currency": "ARS",
+  "lines": [
+    {
+      "account": 10,
+      "description": "Ingreso en caja",
+      "debit": "100000.00",
+      "credit": "0.00"
+    },
+    {
+      "account": 20,
+      "description": "Aporte de capital",
+      "debit": "0.00",
+      "credit": "100000.00"
+    }
+  ]
+}
+```
+
+`accounting_date`, `description` y `lines` son obligatorios; cada movimiento
+exige `account` (ID entero) y `description` no vacía según el modelo.
+`currency` es opcional y usa `ARS`; actualmente no se admiten otras monedas.
+Omitir `debit` o `credit` usa el cero del modelo. Los campos internos enviados
+por el cliente (`company`, `number`, `status`, `source_type`, `source_id`,
+`created_by`, `reversal_of`, etc.) se ignoran y no controlan el alta.
+
+Se guardan cabecera y movimientos en una transacción. Las líneas reutilizan
+`JournalLine.save()` y `full_clean()`: cuenta existente, activa y de la misma
+Company, importes con hasta 18 dígitos y 2 decimales y exactamente un lado
+positivo. Una línea inválida devuelve `400` con errores DRF y revierte todo el
+asiento. `lines: []`, un solo movimiento o un asiento desbalanceado son válidos
+como borrador; las reglas de publicación permanecen en el service existente.
+
+- `GET .../journal-entries/drafts/` devuelve una colección plana de borradores
+  de la Company autorizada, ordenada por `accounting_date` y `number`, con el
+  formato de cabecera del historial.
+- `GET .../journal-entries/drafts/<id>/` devuelve el detalle con `lines`,
+  `account`, `account_code` y `account_name`. Un ID ajeno o ya publicado devuelve
+  `404`. Ambos endpoints exigen la autenticación y membership habituales.
+- Para publicar, usar el `id` devuelto en
+  `POST .../journal-entries/<id>/publish/`. Después, el asiento deja las
+  consultas de borradores e integra el historial y los reportes actuales.
+
+Estas rutas no habilitan edición ni eliminación y no alteran el contrato del
+historial, sus filtros ni los reportes. No dependen de Billing.
 
 ### Publicación y reversión de asientos
 
@@ -341,7 +401,7 @@ funcionales.
 
 ## Pendiente / fuera de alcance actual
 
-- Creación y edición de asientos y movimientos por API.
+- Edición y eliminación de borradores y sus movimientos por API.
 - Estados contables legales, balance general formal y estado de resultados.
 - Cierres mensuales y anuales.
 - Conciliación bancaria y reportes fiscales.
