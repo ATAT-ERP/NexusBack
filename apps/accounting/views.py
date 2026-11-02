@@ -24,6 +24,7 @@ from apps.accounting.serializers.account import (
 from apps.accounting.serializers.journal_entry import (
     DateRangeQuerySerializer,
     GeneralLedgerRowSerializer,
+    JournalEntryCreateSerializer,
     JournalEntryDetailSerializer,
     JournalEntryListQuerySerializer,
     JournalEntrySerializer,
@@ -184,13 +185,13 @@ class AccountListCreateView(AccountAccessMixin, generics.ListCreateAPIView):
 
     def get_queryset(self):
         """
-        Aplica los filtros válidos al plan de cuentas autorizado.
+        Aplica sólo los filtros enviados al plan de cuentas autorizado.
 
-        @version 1.0
+        @version 1.1
         @author Agustin
         """
         accounts = super().get_queryset()
-        filters = AccountListQuerySerializer(data=self.request.query_params)
+        filters = AccountListQuerySerializer(data=self.request.query_params.dict())
         filters.is_valid(raise_exception=True)
         if "account_type" in filters.validated_data:
             accounts = accounts.filter(account_type=filters.validated_data["account_type"])
@@ -288,15 +289,40 @@ class JournalEntryReverseView(CompanyAccessMixin, generics.GenericAPIView):
         )
 
 
-class JournalEntryListView(JournalEntryHistoryMixin, generics.ListAPIView):
+class JournalEntryListView(JournalEntryHistoryMixin, generics.ListCreateAPIView):
     """
-    Lista cronológicamente los asientos del historial de una Company autorizada.
+    Lista el historial y crea borradores manuales en la Company autorizada.
 
-    @version 1.0
+    @version 2.0
     @author Agustin
     """
 
     serializer_class = JournalEntrySerializer
+
+    def get_serializer_class(self):
+        """
+        Usa un contrato de escritura acotado sólo para el alta manual.
+        @author Agustin
+        @version 1.0
+        """
+        if self.request.method == "POST":
+            return JournalEntryCreateSerializer
+        return super().get_serializer_class()
+
+    def create(self, request, *args, **kwargs):
+        """
+        Autoriza antes de validar y devuelve el detalle del borrador creado.
+        @author Agustin
+        @version 1.0
+        """
+        company = self.get_company()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        entry = serializer.save(company=company, created_by=request.user)
+        return Response(
+            JournalEntryDetailSerializer(entry).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     def get_queryset(self):
         """
@@ -334,6 +360,45 @@ class JournalEntryDetailView(JournalEntryHistoryMixin, generics.RetrieveAPIView)
         @author Agustin
         """
         return self.get_history_queryset().prefetch_related(LINES_PREFETCH)
+
+
+class JournalEntryDraftListView(CompanyAccessMixin, generics.ListAPIView):
+    """
+    Lista los borradores sin cambiar las consultas históricas.
+    @author Agustin
+    @version 1.0
+    """
+
+    serializer_class = JournalEntrySerializer
+
+    def get_queryset(self):
+        """Limita los borradores a la Company autorizada en orden contable.
+
+        @version 1.0
+        """
+        return JournalEntry.objects.filter(
+            company=self.get_company(), status=EntryStatus.DRAFT
+        ).order_by("accounting_date", "number")
+
+
+class JournalEntryDraftDetailView(CompanyAccessMixin, generics.RetrieveAPIView):
+    """
+    Recupera un borrador con las cuentas y movimientos para publicarlo.
+    @author Agustin
+    @version 1.0
+    """
+
+    serializer_class = JournalEntryDetailSerializer
+
+    def get_queryset(self):
+        """
+        Obtiene sólo borradores de la Company autorizada con sus líneas.
+        @author Agustin
+        @version 1.0
+        """
+        return JournalEntry.objects.filter(
+            company=self.get_company(), status=EntryStatus.DRAFT
+        ).prefetch_related(LINES_PREFETCH)
 
 
 class DailyJournalView(JournalEntryHistoryMixin, generics.ListAPIView):

@@ -1,3 +1,5 @@
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from rest_framework import serializers
 
 from apps.accounting.enums import EntryOrigin, EntryStatus
@@ -67,6 +69,36 @@ class JournalEntryDetailSerializer(JournalEntrySerializer):
 
     class Meta(JournalEntrySerializer.Meta):
         fields = JournalEntrySerializer.Meta.fields + ("lines",)
+
+
+class JournalEntryCreateSerializer(serializers.ModelSerializer):
+    """
+    Recibe una cabecera manual y sus movimientos sin exponer campos internos.
+    @author Agustin
+    @version 1.0
+    """
+
+    lines = JournalLineSerializer(many=True)
+
+    class Meta:
+        model = JournalEntry
+        fields = ("accounting_date", "description", "currency", "lines")
+
+    @transaction.atomic
+    def create(self, validated_data):
+        """
+        Guarda el borrador completo o revierte el alta si una línea es inválida.
+        @author Agustin
+        @version 1.0
+        """
+        lines = validated_data.pop("lines")
+        entry = JournalEntry.objects.create(**validated_data)
+        for line in lines:
+            try:
+                JournalLine.objects.create(journal_entry=entry, **line)
+            except ValidationError as error:
+                raise serializers.ValidationError({"lines": error.message_dict}) from error
+        return entry
 
 
 class DateRangeQuerySerializer(serializers.Serializer):

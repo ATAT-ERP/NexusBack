@@ -8,6 +8,8 @@ from apps.accounting.views import (
     GeneralLedgerCSVView,
     GeneralLedgerView,
     JournalEntryDetailView,
+    JournalEntryDraftDetailView,
+    JournalEntryDraftListView,
     JournalEntryListView,
     JournalEntryPublishView,
     JournalEntryReverseView,
@@ -17,6 +19,16 @@ from apps.accounting.views import (
 
 
 urlpatterns = [
+    path(
+        "companies/<uuid:company_id>/journal-entries/drafts/",
+        JournalEntryDraftListView.as_view(),
+        name="journal-entry-draft-list",
+    ),
+    path(
+        "companies/<uuid:company_id>/journal-entries/drafts/<int:pk>/",
+        JournalEntryDraftDetailView.as_view(),
+        name="journal-entry-draft-detail",
+    ),
     path(
         "companies/<uuid:company_id>/reports/daily-journal/export/",
         DailyJournalCSVView.as_view(),
