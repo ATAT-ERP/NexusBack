@@ -112,8 +112,8 @@ class AccountTests(APITestCase):
         self.assertEqual(response.data, {"code": "NEX-ACC-001"})
 
     def test_created_account_remains_listed_and_isolated_by_company(self):
-        """Conserva la cuenta creada por POST en consultas sucesivas y la aísla.
-
+        """
+        Conserva la cuenta creada por POST en consultas sucesivas y la aísla.
         @version 1.0
         @author Agustin
         """
